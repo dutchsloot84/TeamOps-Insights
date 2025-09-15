@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+build/
+*.zip
+jira_ingestor.zip
+.pytest_cache/
+.terraform/
+terraform.tfstate*

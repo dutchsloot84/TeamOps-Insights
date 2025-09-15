@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+exclude = [
+  ".venv",
+  "build",
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_configs = true
+explicit_package_bases = true
+warn_redundant_casts = false
+warn_unused_ignores = false
+strict_optional = false
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["services/ingest/jira_ingestor/tests"]
