@@ -1,0 +1,11 @@
+version: "3.9"
+services:
+  releasecopilot:
+    build: .
+    image: releasecopilot-ai:latest
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./temp_data:/app/temp_data
+    command: ["--fix-version", "2025.09.20", "--repos", "policycenter", "claimcenter", "--develop-only"]
