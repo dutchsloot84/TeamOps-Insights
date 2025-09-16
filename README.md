@@ -147,3 +147,10 @@ Logs are emitted in JSON-friendly format, making them CloudWatch-ready. Adjust l
 - Linting and unit tests can be wired into GitHub Actions as part of CI/CD.
 - `temp_data/` retains every raw response; purge periodically if storage becomes large.
 - Contributions should include updates to this README when adding new functionality.
+
+## Documentation
+
+Published with MkDocs Material (auto-deployed from `main`):
+https://<your-github-username>.github.io/releasecopilot-ai
+
+Edit pages under `docs/` and push to `main` — the site republish is automated by GitHub Actions.

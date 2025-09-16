@@ -1,0 +1,30 @@
+site_name: releasecopilot-ai
+theme:
+  name: material
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed
+  - attr_list
+  - tables
+  - md_in_html
+  - pymdownx.snippets
+  - pymdownx.highlight
+  - footnotes
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - https://unpkg.com/mermaid@10/dist/mermaid.min.js
+
+nav:
+  - Home: index.md
+  - Architecture:
+      - Overview: architecture.md
+      - System Context: diagrams/system-context.md
+      - Components: diagrams/components.md
+      - Data Flow: diagrams/data-flow.md
+      - AWS Deployment: diagrams/deployment-aws.md
+      - Agents: diagrams/agents.md
