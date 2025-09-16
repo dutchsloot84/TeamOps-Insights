@@ -1,0 +1,16 @@
+# Default configuration for releasecopilot-ai.
+# Replace placeholder values with environment-specific details.
+aws:
+  region: us-east-1
+  s3_bucket: releasecopilot-ai-artifacts
+  s3_prefix: releasecopilot/
+  secrets:
+    jira: releasecopilot-ai/jira
+    bitbucket: releasecopilot-ai/bitbucket
+jira:
+  base_url: https://your-domain.atlassian.net
+  cloud_id: your-cloud-id
+bitbucket:
+  workspace: your-workspace
+  default_branches:
+    - develop

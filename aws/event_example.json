@@ -1,0 +1,8 @@
+{
+  "fix_version": "2025.09.20",
+  "repos": ["policycenter", "claimcenter"],
+  "develop_only": true,
+  "upload_s3": true,
+  "s3_bucket": "releasecopilot-ai-artifacts",
+  "s3_prefix": "reports/2025.09.20"
+}
