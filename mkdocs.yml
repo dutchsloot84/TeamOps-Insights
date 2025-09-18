@@ -28,3 +28,5 @@ nav:
       - Data Flow: diagrams/data-flow.md
       - AWS Deployment: diagrams/deployment-aws.md
       - Agents: diagrams/agents.md
+  - Deployment: deployment.md
+  - Agent Research: agent_research.md

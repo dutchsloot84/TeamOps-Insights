@@ -10,6 +10,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+try:  # pragma: no cover - best effort optional dependency
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:  # pragma: no cover - ignore missing dependency
+    pass
+
 from aws import s3_utils
 from clients.bitbucket_client import BitbucketClient
 from clients.jira_client import JiraClient, compute_fix_version_window
@@ -162,11 +169,15 @@ def run_audit(config: AuditConfig) -> Dict[str, Any]:
     json_path = json_exporter.export(audit_payload, f"{config.output_prefix}.json")
     excel_path = excel_exporter.export(audit_payload, f"{config.output_prefix}.xlsx")
 
+    summary_path = DATA_DIR / "summary.json"
+    write_json(summary_path, audit_result.summary)
+
     artifacts = {
         "jira_issues": str(jira_output),
         "bitbucket_commits": str(commits_output),
         "json_report": str(json_path),
         "excel_report": str(excel_path),
+        "summary": str(summary_path),
     }
 
     # Collect raw payload cache files for optional S3 upload
@@ -192,7 +203,11 @@ def run_audit(config: AuditConfig) -> Dict[str, Any]:
 def build_jira_client(settings: Dict[str, Any], credential_store: CredentialStore) -> JiraClient:
     jira_cfg = settings.get("jira", {})
     aws_cfg = settings.get("aws", {})
-    secret_id = aws_cfg.get("secrets", {}).get("jira")
+    secret_id = (
+        aws_cfg.get("secrets", {}).get("jira")
+        or os.getenv("JIRA_SECRET_ARN")
+        or os.getenv("OAUTH_SECRET_ARN")
+    )
 
     base_url = credential_store.get(
         "JIRA_BASE_URL",
@@ -219,7 +234,11 @@ def build_jira_client(settings: Dict[str, Any], credential_store: CredentialStor
 def build_bitbucket_client(settings: Dict[str, Any], credential_store: CredentialStore) -> BitbucketClient:
     bitbucket_cfg = settings.get("bitbucket", {})
     aws_cfg = settings.get("aws", {})
-    secret_id = aws_cfg.get("secrets", {}).get("bitbucket")
+    secret_id = (
+        aws_cfg.get("secrets", {}).get("bitbucket")
+        or os.getenv("BITBUCKET_SECRET_ARN")
+        or os.getenv("OAUTH_SECRET_ARN")
+    )
 
     workspace = credential_store.get(
         "BITBUCKET_WORKSPACE",
@@ -275,7 +294,11 @@ def upload_artifacts(
     raw_files: Iterable[Path],
     region: Optional[str],
 ) -> None:
-    bucket = config.s3_bucket or settings.get("aws", {}).get("s3_bucket")
+    bucket = (
+        config.s3_bucket
+        or settings.get("aws", {}).get("s3_bucket")
+        or os.getenv("ARTIFACTS_BUCKET")
+    )
     if not bucket:
         raise RuntimeError("S3 bucket is required for uploads")
     prefix_root = config.s3_prefix or settings.get("aws", {}).get("s3_prefix", "")
