@@ -1,0 +1,52 @@
+name: cdk-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_schedule:
+        description: 'Enable EventBridge schedule (0/1)'
+        required: true
+        default: '0'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-west-2
+  PROJECT_NAME: releasecopilot-ai
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: aws-deploy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CDK CLI
+        run: npm install -g aws-cdk@2
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Install dependencies
+        run: pip install -r cdk/requirements.txt
+      - name: Package Lambda artifacts
+        run: scripts/package_lambda.sh
+      - name: CDK bootstrap
+        working-directory: cdk
+        run: cdk bootstrap
+      - name: Deploy core stack
+        working-directory: cdk
+        run: cdk deploy ${PROJECT_NAME:-releasecopilot-ai}-core --require-approval never
+      - name: Deploy lambda stack
+        working-directory: cdk
+        run: |
+          if [ "${{ github.event.inputs.enable_schedule }}" = "1" ]; then
+            ENABLE_EVENTBRIDGE=1 cdk deploy ${PROJECT_NAME:-releasecopilot-ai}-lambda --require-approval never
+          else
+            cdk deploy ${PROJECT_NAME:-releasecopilot-ai}-lambda --require-approval never
+          fi

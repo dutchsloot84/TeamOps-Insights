@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Dict
 
 from main import AuditConfig, run_audit
@@ -15,6 +16,13 @@ def lambda_handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
     """AWS Lambda handler that proxies events into the CLI orchestration."""
     logger.info("Received event: %s", json.dumps(event))
 
+    env_bucket = os.getenv("ARTIFACTS_BUCKET")
+    env_secret = os.getenv("OAUTH_SECRET_ARN")
+    if env_bucket:
+        os.environ.setdefault("ARTIFACTS_BUCKET", env_bucket)
+    if env_secret:
+        os.environ.setdefault("OAUTH_SECRET_ARN", env_secret)
+
     config = AuditConfig(
         fix_version=event["fix_version"],
         repos=event.get("repos", []),
@@ -22,10 +30,10 @@ def lambda_handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
         window_days=int(event.get("window_days", 28)),
         freeze_date=event.get("freeze_date"),
         develop_only=event.get("develop_only", False),
-        upload_s3=event.get("upload_s3", False),
+        upload_s3=event.get("upload_s3", bool(env_bucket)),
         use_cache=event.get("use_cache", False),
-        s3_bucket=event.get("s3_bucket"),
-        s3_prefix=event.get("s3_prefix", "releasecopilot"),
+        s3_bucket=event.get("s3_bucket") or env_bucket,
+        s3_prefix=event.get("s3_prefix") or os.getenv("S3_PREFIX", "releasecopilot"),
         output_prefix=event.get("output_prefix", "audit_results"),
     )
 
