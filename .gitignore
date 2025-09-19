@@ -3,6 +3,8 @@ cat > .gitignore <<'EOF'
 __pycache__/
 *.pyc
 .venv/
+# Local environment files
+.env
 # Lambda build artifacts
 services/ingest/jira_ingestor/build/
 services/ingest/jira_ingestor/jira_ingestor.zip

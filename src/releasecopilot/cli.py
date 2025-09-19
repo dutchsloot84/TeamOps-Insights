@@ -2,7 +2,34 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Iterable, Optional
+
+try:  # pragma: no cover - optional dependency
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency
+    load_dotenv = None
+
+
+def _load_local_dotenv() -> None:
+    """Best-effort loading of a project-level ``.env`` file."""
+
+    if load_dotenv is None:
+        return
+
+    env_path = Path(__file__).resolve().parents[2] / ".env"
+    if not env_path.is_file():
+        return
+
+    try:  # pragma: no cover - defensive guard around optional dependency
+        load_dotenv(dotenv_path=env_path)
+    except Exception:
+        # Loading environment variables is a convenience for local usage and
+        # should never break the CLI if anything goes wrong.
+        pass
+
+
+_load_local_dotenv()
 
 from .config import build_config
 

@@ -3,7 +3,7 @@
 The Release Copilot CLI accepts configuration from YAML files, environment variables, and direct flags. Configuration precedence is:
 
 1. Command line arguments (highest priority)
-2. Environment variables
+2. Environment variables (including values loaded from a local `.env` file)
 3. YAML defaults (`releasecopilot.yaml`)
 
 Secrets follow the same order, and when `--use-aws-secrets-manager` is provided the CLI falls back to AWS Secrets Manager for any missing values. Secrets retrieved from AWS are cached so that each key is only fetched once per run.
@@ -35,3 +35,13 @@ python recover_and_export.py --input-dir temp_data --format excel
 The command above regenerates only the Excel workbook in the default output directory `reports/`. By default the utility writes
 both `audit_results.xlsx` and `audit_results.json` (alongside `summary.json`) to the selected output folder, mirroring the
 filenames created by the primary CLI.
+## Loading local secrets
+
+For local runs you can populate a `.env` file and let the CLI source values from it. Copy the template and install the optional dependency:
+
+```bash
+cp .env.example .env
+pip install -r requirements-optional.txt
+```
+
+Populate the placeholders with development credentials and keep `.env` out of version control (the file is already ignored by git). In deployed environments prefer AWS Secrets Manager and use `.env` only for local iteration.
