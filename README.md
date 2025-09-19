@@ -100,6 +100,39 @@ python main.py \
 | `--s3-prefix` | Prefix within the S3 bucket for uploaded artifacts. |
 | `--output-prefix` | Basename for generated output files. |
 
+## Streamlit Dashboard
+
+Explore generated audit reports with the bundled Streamlit UI. The app can open
+local JSON outputs or browse reports hosted in Amazon S3.
+
+### Running the app
+
+```bash
+streamlit run ui/app.py
+```
+
+### Local reports
+
+1. Point the "Reports folder" sidebar field to a directory containing the
+   exported `*.json` and (optionally) `*.xlsx` files. The most recent JSON file
+   is loaded automatically.
+2. A sample fixture is provided at `reports/sample.json` for quick exploration.
+
+### Amazon S3 mode
+
+1. Ensure AWS credentials are available to the process (`AWS_ACCESS_KEY_ID`,
+   `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION` or a configured profile).
+2. Enter the bucket name and optional prefix. The dashboard lists runs grouped
+   by fix version and execution date. Selecting a run downloads the JSON report
+   and offers a presigned link to the Excel workbook when available.
+
+The main view surfaces KPI metrics, filters (fix version, status, assignee,
+labels/components, repository, branch, and commit date range), and tables for
+stories with commits, stories without commits, and orphan commits. Filtered
+tables can be exported as CSV files. A comparison mode allows diffing the
+current run against a previous report and integrates with the `#24` diff API via
+an optional endpoint field.
+
 ## AWS Deployment
 
 ### Lambda
@@ -118,6 +151,25 @@ python main.py \
 ### ECS/Fargate or Batch
 
 Use the provided `Dockerfile` and pass CLI arguments through task definitions or AWS Batch job parameters. Mount or sync `/data` and `/temp_data` to S3 as part of the workflow if persistent storage is required.
+
+### Deploying to AWS (per environment)
+
+Infrastructure for the audit workflow is defined in `infra/cdk`. Each AWS environment is described by a small JSON/YAML file in `infra/envs/` (examples: [`dev.json`](infra/envs/dev.json), [`prod.json`](infra/envs/prod.json)). The file controls bucket naming, secret names, schedule settings, and other CDK context values.
+
+1. Install the CDK dependencies once:
+   ```bash
+   pip install -r infra/cdk/requirements.txt
+   ```
+2. Review or create `infra/envs/<env>.json` with your desired settings. `bucketBase` and `secrets` must be provided.
+3. Deploy using the helper script:
+   ```bash
+   python scripts/deploy_env.py --env dev --package
+   ```
+   - `--package` ensures `scripts/package_lambda.sh` runs before deployment so the Lambda artifact is up to date.
+   - Add `--no-schedule` to disable the optional EventBridge rule regardless of the environment config.
+4. The script bootstraps the account if needed (`cdk bootstrap`) and then executes `cdk deploy --require-approval never` with the environment context derived from the configuration file.
+
+Production buckets are retained by default; set `"retainBucket": false` in non-production configs to allow destruction on stack deletion.
 
 ## Secrets Management
 

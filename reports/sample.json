@@ -1,0 +1,87 @@
+{
+  "metadata": {
+    "fix_version": "MOB-1.0.0",
+    "generated_at": "2024-02-12T20:00:00Z"
+  },
+  "summary": {
+    "total_stories": 3,
+    "stories_with_commits": 2,
+    "stories_without_commits": 1,
+    "orphan_commits": 1
+  },
+  "commit_story_mapping": [
+    {
+      "story_key": "APP-1",
+      "story_summary": "Implement login flow",
+      "story_status": "In Progress",
+      "story_assignee": "Alice Smith",
+      "components": ["Mobile"],
+      "labels": ["frontend", "login"],
+      "fix_versions": ["MOB-1.0.0"],
+      "commits": [
+        {
+          "hash": "abc123",
+          "message": "APP-1 build login screen",
+          "author": "Alice",
+          "date": "2024-02-10T12:00:00Z",
+          "repository": "mobile-app",
+          "branch": "main"
+        }
+      ]
+    },
+    {
+      "story_key": "APP-3",
+      "story_summary": "Add analytics instrumentation",
+      "story_status": "Done",
+      "story_assignee": "Cara Jones",
+      "components": ["Tracking"],
+      "labels": ["analytics"],
+      "fix_versions": ["MOB-1.0.0", "MOB-1.1.0"],
+      "commits": [
+        {
+          "hash": "def456",
+          "message": "APP-3 add trackers",
+          "author": "Cara",
+          "date": "2024-02-11T09:15:00Z",
+          "repository": "mobile-app",
+          "branch": "release/1.0"
+        },
+        {
+          "hash": "ghi789",
+          "message": "APP-3 tests",
+          "author": "Cara",
+          "date": "2024-02-12T18:30:00Z",
+          "repository": "mobile-app",
+          "branch": "release/1.0"
+        }
+      ]
+    }
+  ],
+  "stories_with_no_commits": [
+    {
+      "key": "APP-2",
+      "fields": {
+        "summary": "Polish settings page",
+        "status": {"name": "To Do"},
+        "assignee": {"displayName": "Bob Lee"},
+        "components": [
+          {"name": "UI"}
+        ],
+        "labels": ["ux"],
+        "fixVersions": [
+          {"name": "MOB-1.0.0"}
+        ]
+      }
+    }
+  ],
+  "orphan_commits": [
+    {
+      "hash": "xyz999",
+      "message": "refactor shared utils",
+      "author": "Dana",
+      "date": "2024-02-09T08:00:00Z",
+      "repository": "shared-lib",
+      "branch": "develop"
+    }
+  ]
+}
