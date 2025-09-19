@@ -100,6 +100,39 @@ python main.py \
 | `--s3-prefix` | Prefix within the S3 bucket for uploaded artifacts. |
 | `--output-prefix` | Basename for generated output files. |
 
+## Streamlit Dashboard
+
+Explore generated audit reports with the bundled Streamlit UI. The app can open
+local JSON outputs or browse reports hosted in Amazon S3.
+
+### Running the app
+
+```bash
+streamlit run ui/app.py
+```
+
+### Local reports
+
+1. Point the "Reports folder" sidebar field to a directory containing the
+   exported `*.json` and (optionally) `*.xlsx` files. The most recent JSON file
+   is loaded automatically.
+2. A sample fixture is provided at `reports/sample.json` for quick exploration.
+
+### Amazon S3 mode
+
+1. Ensure AWS credentials are available to the process (`AWS_ACCESS_KEY_ID`,
+   `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION` or a configured profile).
+2. Enter the bucket name and optional prefix. The dashboard lists runs grouped
+   by fix version and execution date. Selecting a run downloads the JSON report
+   and offers a presigned link to the Excel workbook when available.
+
+The main view surfaces KPI metrics, filters (fix version, status, assignee,
+labels/components, repository, branch, and commit date range), and tables for
+stories with commits, stories without commits, and orphan commits. Filtered
+tables can be exported as CSV files. A comparison mode allows diffing the
+current run against a previous report and integrates with the `#24` diff API via
+an optional endpoint field.
+
 ## AWS Deployment
 
 ### Lambda
