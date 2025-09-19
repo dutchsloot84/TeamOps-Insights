@@ -1,0 +1,50 @@
+{
+  "stories": [
+    {
+      "id": "1",
+      "key": "RC-1",
+      "summary": "Initial story",
+      "status": "In Progress",
+      "assignee": "Alice",
+      "components": ["backend"],
+      "fixVersions": ["1.0"],
+      "commitIds": ["c1"]
+    },
+    {
+      "id": "2",
+      "key": "RC-2",
+      "summary": "Another story",
+      "status": "Todo",
+      "assignee": null,
+      "components": [],
+      "fixVersions": [],
+      "commitIds": []
+    }
+  ],
+  "commits": [
+    {
+      "id": "c1",
+      "repo": "service",
+      "author": "Dev",
+      "date": "2024-01-01T00:00:00Z",
+      "message": "feat: start",
+      "linkedStoryKeys": ["RC-1"]
+    },
+    {
+      "id": "c-orphan-old",
+      "repo": "service",
+      "author": "Dev",
+      "date": "2024-01-02T00:00:00Z",
+      "message": "chore: orphan",
+      "linkedStoryKeys": []
+    }
+  ],
+  "summary": {
+    "generatedAt": "2024-01-02T10:00:00Z",
+    "storyCount": 2,
+    "storyWithCommitsCount": 1,
+    "storyWithoutCommitsCount": 1,
+    "orphanCommitCount": 1,
+    "coveragePercent": 50.0
+  }
+}
