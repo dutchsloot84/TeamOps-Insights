@@ -119,6 +119,25 @@ python main.py \
 
 Use the provided `Dockerfile` and pass CLI arguments through task definitions or AWS Batch job parameters. Mount or sync `/data` and `/temp_data` to S3 as part of the workflow if persistent storage is required.
 
+### Deploying to AWS (per environment)
+
+Infrastructure for the audit workflow is defined in `infra/cdk`. Each AWS environment is described by a small JSON/YAML file in `infra/envs/` (examples: [`dev.json`](infra/envs/dev.json), [`prod.json`](infra/envs/prod.json)). The file controls bucket naming, secret names, schedule settings, and other CDK context values.
+
+1. Install the CDK dependencies once:
+   ```bash
+   pip install -r infra/cdk/requirements.txt
+   ```
+2. Review or create `infra/envs/<env>.json` with your desired settings. `bucketBase` and `secrets` must be provided.
+3. Deploy using the helper script:
+   ```bash
+   python scripts/deploy_env.py --env dev --package
+   ```
+   - `--package` ensures `scripts/package_lambda.sh` runs before deployment so the Lambda artifact is up to date.
+   - Add `--no-schedule` to disable the optional EventBridge rule regardless of the environment config.
+4. The script bootstraps the account if needed (`cdk bootstrap`) and then executes `cdk deploy --require-approval never` with the environment context derived from the configuration file.
+
+Production buckets are retained by default; set `"retainBucket": false` in non-production configs to allow destruction on stack deletion.
+
 ## Secrets Management
 
 - At runtime the application evaluates configuration in the following order: CLI flags → environment variables (including a local `.env` when present) → YAML defaults. When enabled, AWS Secrets Manager still acts as the fallback for secrets that remain unset.

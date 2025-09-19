@@ -34,6 +34,8 @@ class CoreStack(Stack):
         report_prefix: str = "reports/",
         raw_prefix: str = "raw/",
         enable_schedule: bool = False,
+        schedule_expression: str = "cron(30 8 * * ? *)",
+        retain_bucket: bool = False,
         fix_version: str | None = None,
         log_level: str = "INFO",
         lambda_module: str = "aws.core_handler",
@@ -45,7 +47,7 @@ class CoreStack(Stack):
         self._raw_prefix = self._normalise_prefix(raw_prefix)
 
         bucket_name = f"{bucket_base}-{env_name}"
-        removal_policy = RemovalPolicy.RETAIN if env_name == "prod" else RemovalPolicy.DESTROY
+        removal_policy = RemovalPolicy.RETAIN if retain_bucket else RemovalPolicy.DESTROY
 
         self.bucket = s3.Bucket(
             self,
@@ -151,10 +153,7 @@ class CoreStack(Stack):
             self.schedule = events.Rule(
                 self,
                 "DailyAuditSchedule",
-                schedule=events.Schedule.cron(
-                    minute="30",
-                    hour="8",
-                ),
+                schedule=events.Schedule.expression(schedule_expression),
             )
             self.schedule.add_target(targets.LambdaFunction(self.audit_lambda))
 
