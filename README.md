@@ -50,11 +50,27 @@ Install Python dependencies locally:
 pip install -r requirements.txt
 ```
 
+Optional helpers (such as loading a local `.env` file) live in
+`requirements-optional.txt`:
+
+```bash
+pip install -r requirements-optional.txt
+```
+
 ## Configuration
 
-1. Copy `.env` and populate the placeholders with local credentials (optional when using AWS Secrets Manager).
-2. Update `config/settings.yaml` with your Jira site URL, Bitbucket workspace, and AWS resource names.
-3. Store production credentials in AWS Secrets Manager using JSON keys that match the environment variable names (e.g., `JIRA_CLIENT_ID`, `BITBUCKET_APP_PASSWORD`).
+1. Copy `.env.example` to `.env` for local development and populate the placeholders with test credentials. The file is `.gitignore`d—keep real secrets out of version control.
+2. Install the optional dependency with `pip install -r requirements-optional.txt` to enable automatic loading of the `.env` file.
+3. Update `config/settings.yaml` with your Jira site URL, Bitbucket workspace, and AWS resource names.
+4. Store production credentials in AWS Secrets Manager using JSON keys that match the environment variable names (e.g., `JIRA_CLIENT_ID`, `BITBUCKET_APP_PASSWORD`).
+
+Configuration precedence is:
+
+1. CLI flags (highest priority)
+2. Environment variables, including values sourced from `.env`
+3. YAML defaults (`releasecopilot.yaml`)
+
+For non-local deployments, rely on AWS Secrets Manager wherever possible and only fall back to `.env` for iterative development.
 
 ## CLI Usage
 
@@ -105,7 +121,7 @@ Use the provided `Dockerfile` and pass CLI arguments through task definitions or
 
 ## Secrets Management
 
-- At runtime the application first checks environment variables, then AWS Secrets Manager.
+- At runtime the application evaluates configuration in the following order: CLI flags → environment variables (including a local `.env` when present) → YAML defaults. When enabled, AWS Secrets Manager still acts as the fallback for secrets that remain unset.
 - Secrets should be stored as JSON maps, for example:
   ```json
   {
@@ -117,6 +133,7 @@ Use the provided `Dockerfile` and pass CLI arguments through task definitions or
   }
   ```
 - Bitbucket secrets can include either an OAuth access token or a username/app-password pair.
+- `.env` files are intended for local experiments only—use AWS Secrets Manager for shared or deployed environments.
 
 ## Outputs
 

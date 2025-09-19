@@ -1,0 +1,12 @@
+{
+  "orphan_commits": [
+    {
+      "hash": "def456",
+      "message": "chore: unrelated clean up",
+      "author": "Bob",
+      "date": "2024-01-02T12:00:00Z",
+      "repository": "repo-1",
+      "branch": "develop"
+    }
+  ]
+}
