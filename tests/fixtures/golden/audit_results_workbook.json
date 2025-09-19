@@ -1,0 +1,39 @@
+{
+  "Audit Summary": [
+    {
+      "total_stories": 2,
+      "total_commits": 2,
+      "stories_with_commits": 1,
+      "stories_without_commits": 1,
+      "orphan_commits": 1
+    }
+  ],
+  "Stories Without Commits": [
+    {
+      "key": "APP-2",
+      "fields.summary": "Second story awaiting work"
+    }
+  ],
+  "Orphan Commits": [
+    {
+      "hash": "def456",
+      "message": "chore: unrelated clean up",
+      "author": "Bob",
+      "date": "2024-01-02T12:00:00Z",
+      "repository": "repo-1",
+      "branch": "develop"
+    }
+  ],
+  "Commit Mapping": [
+    {
+      "story_key": "APP-1",
+      "story_summary": "Initial feature",
+      "commit_hash": "abc123",
+      "commit_message": "APP-1 initial implementation",
+      "commit_author": "Alice",
+      "commit_date": "2024-01-01T08:30:00Z",
+      "repository": "repo-1",
+      "branch": "main"
+    }
+  ]
+}

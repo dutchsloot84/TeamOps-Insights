@@ -1,0 +1,10 @@
+{
+  "stories_with_no_commits": [
+    {
+      "key": "APP-2",
+      "fields": {
+        "summary": "Second story awaiting work"
+      }
+    }
+  ]
+}
