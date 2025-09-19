@@ -1,0 +1,16 @@
+{
+  "env": "dev",
+  "project": "releasecopilot",
+  "region": "us-west-2",
+  "bucketBase": "releasecopilot-audit",
+  "reportPrefix": "reports/",
+  "rawPrefix": "raw/",
+  "retainBucket": false,
+  "scheduleEnabled": false,
+  "scheduleCron": "cron(30 8 * * ? *)",
+  "logLevel": "DEBUG",
+  "secrets": {
+    "jira": "releasecopilot/dev/jira",
+    "bitbucket": "releasecopilot/dev/bitbucket"
+  }
+}
