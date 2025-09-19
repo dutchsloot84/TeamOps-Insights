@@ -1,0 +1,18 @@
+{
+  "commit_story_mapping": [
+    {
+      "story_key": "APP-1",
+      "story_summary": "Initial feature",
+      "commits": [
+        {
+          "hash": "abc123",
+          "message": "APP-1 initial implementation",
+          "author": "Alice",
+          "date": "2024-01-01T08:30:00Z",
+          "repository": "repo-1",
+          "branch": "main"
+        }
+      ]
+    }
+  ]
+}
