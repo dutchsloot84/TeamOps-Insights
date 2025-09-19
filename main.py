@@ -12,10 +12,25 @@ from typing import Any, Dict, Iterable, List, Optional
 
 try:  # pragma: no cover - best effort optional dependency
     from dotenv import load_dotenv
-
-    load_dotenv()
 except Exception:  # pragma: no cover - ignore missing dependency
-    pass
+    load_dotenv = None
+
+
+def _load_local_dotenv() -> None:
+    if load_dotenv is None:
+        return
+
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.is_file():
+        return
+
+    try:  # pragma: no cover - defensive guard
+        load_dotenv(dotenv_path=env_path)
+    except Exception:
+        pass
+
+
+_load_local_dotenv()
 
 from aws import s3_utils
 from clients.bitbucket_client import BitbucketClient
