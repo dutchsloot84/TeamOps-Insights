@@ -81,7 +81,8 @@ python main.py \
   --fix-version 2025.09.20 \
   --repos policycenter claimcenter \
   --develop-only \
-  --upload-s3
+  --s3-bucket my-artifacts-bucket \
+  --s3-prefix audits
 ```
 
 ### Available Options
@@ -95,10 +96,29 @@ python main.py \
 | `--freeze-date` | ISO date representing the code freeze (default: today). |
 | `--window-days` | Days of history to analyze before the freeze date (default: 28). |
 | `--use-cache` | Reuse the latest cached API payloads instead of calling APIs. |
-| `--upload-s3` | Upload generated artifacts to S3 after completion. |
 | `--s3-bucket` | Override the S3 bucket defined in `config/settings.yaml`. |
-| `--s3-prefix` | Prefix within the S3 bucket for uploaded artifacts. |
+| `--s3-prefix` | Prefix within the S3 bucket for uploaded artifacts (default: `releasecopilot`). |
 | `--output-prefix` | Basename for generated output files. |
+
+### S3 Upload Layout
+
+When an S3 bucket is configured via CLI, configuration, or environment variables,
+the audit automatically uploads generated artifacts after a successful run. The
+files are grouped by fix version and execution timestamp using the pattern:
+
+```
+s3://<bucket>/<prefix>/<fix-version>/<YYYY-MM-DD_HHMMSS>/
+├── reports/
+│   ├── <output-prefix>.json
+│   ├── <output-prefix>.xlsx
+│   └── summary.json
+└── raw/
+    ├── jira_issues.json
+    └── bitbucket_commits.json
+```
+
+Each object is encrypted with SSE-S3 and tagged with metadata that captures the
+fix version, generation timestamp, and the current Git SHA when available.
 
 ## Streamlit Dashboard
 

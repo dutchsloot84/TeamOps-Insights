@@ -5,6 +5,8 @@ import argparse
 import json
 import logging
 import os
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -32,7 +34,6 @@ def _load_local_dotenv() -> None:
 
 _load_local_dotenv()
 
-from aws import s3_utils
 from clients.bitbucket_client import BitbucketClient
 from clients.jira_client import JiraClient, compute_fix_version_window
 from clients.secrets_manager import CredentialStore, SecretsManager
@@ -40,6 +41,7 @@ from config.settings import load_settings
 from exporters.excel_exporter import ExcelExporter
 from exporters.json_exporter import JSONExporter
 from processors.audit_processor import AuditProcessor
+from releasecopilot import uploader
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -54,7 +56,6 @@ class AuditConfig:
     window_days: int = 28
     freeze_date: Optional[str] = None
     develop_only: bool = False
-    upload_s3: bool = False
     use_cache: bool = False
     s3_bucket: Optional[str] = None
     s3_prefix: Optional[str] = None
@@ -98,7 +99,6 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> AuditConfig:
     parser.add_argument("--freeze-date", help="ISO formatted freeze date (YYYY-MM-DD)")
     parser.add_argument("--window-days", type=int, default=28, help="Days before freeze date to include commits")
     parser.add_argument("--use-cache", action="store_true", help="Reuse cached API responses where available")
-    parser.add_argument("--upload-s3", action="store_true", help="Upload outputs to Amazon S3")
     parser.add_argument("--s3-bucket", help="Override the default S3 bucket")
     parser.add_argument("--s3-prefix", help="Override the default S3 prefix")
     parser.add_argument("--output-prefix", default="audit_results", help="Basename for output files")
@@ -112,7 +112,6 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> AuditConfig:
         window_days=args.window_days,
         freeze_date=args.freeze_date,
         develop_only=args.develop_only,
-        upload_s3=args.upload_s3,
         use_cache=args.use_cache,
         s3_bucket=args.s3_bucket,
         s3_prefix=args.s3_prefix,
@@ -195,21 +194,24 @@ def run_audit(config: AuditConfig) -> Dict[str, Any]:
         "summary": str(summary_path),
     }
 
+    report_files: List[Path] = [json_path, excel_path, summary_path]
+
     # Collect raw payload cache files for optional S3 upload
-    raw_files: List[Path] = [path for path in [jira_cache_path] if path]
+    raw_files: List[Path] = [jira_output, commits_output]
+    raw_cache_sources: List[Path] = [path for path in [jira_cache_path] if path]
+    raw_files.extend(raw_cache_sources)
     for cache_key in cache_keys:
         cache_file = bitbucket_client.get_last_cache_file(cache_key)
         if cache_file:
             raw_files.append(cache_file)
 
-    if config.upload_s3:
-        upload_artifacts(
-            config=config,
-            settings=settings,
-            artifacts=[Path(p) for p in artifacts.values()],
-            raw_files=raw_files,
-            region=region,
-        )
+    upload_artifacts(
+        config=config,
+        settings=settings,
+        reports=report_files,
+        raw_files=raw_files,
+        region=region,
+    )
 
     logger.info("Audit finished", extra={"summary": audit_result.summary})
     return {"summary": audit_result.summary, "artifacts": artifacts}
@@ -305,24 +307,98 @@ def upload_artifacts(
     *,
     config: AuditConfig,
     settings: Dict[str, Any],
-    artifacts: Iterable[Path],
+    reports: Iterable[Path],
     raw_files: Iterable[Path],
     region: Optional[str],
 ) -> None:
+    logger = logging.getLogger(__name__)
     bucket = (
         config.s3_bucket
         or settings.get("aws", {}).get("s3_bucket")
         or os.getenv("ARTIFACTS_BUCKET")
     )
     if not bucket:
-        raise RuntimeError("S3 bucket is required for uploads")
-    prefix_root = config.s3_prefix or settings.get("aws", {}).get("s3_prefix", "")
-    prefix = "/".join(filter(None, [prefix_root.rstrip("/"), config.fix_version]))
+        logger.info("No S3 bucket configured; skipping artifact upload.")
+        return
 
-    to_upload = list(artifacts)
-    to_upload.extend(raw_files)
+    prefix_root = (
+        config.s3_prefix
+        or settings.get("aws", {}).get("s3_prefix")
+        or os.getenv("ARTIFACTS_PREFIX")
+        or "releasecopilot"
+    )
+    prefix_root = prefix_root.strip("/")
+    if not prefix_root:
+        prefix_root = "releasecopilot"
 
-    s3_utils.upload_files(bucket=bucket, prefix=prefix, files=to_upload, region_name=region)
+    timestamp_source = datetime.utcnow()
+    timestamp = timestamp_source.strftime("%Y-%m-%d_%H%M%S")
+    generated_at = timestamp_source.replace(microsecond=0).isoformat() + "Z"
+    prefix = "/".join([prefix_root, config.fix_version, timestamp])
+
+    metadata = {
+        "fix-version": config.fix_version,
+        "generated-at": generated_at,
+    }
+    git_sha = _detect_git_sha()
+    if git_sha:
+        metadata["git-sha"] = git_sha
+
+    staging_root = TEMP_DIR / "s3_staging" / timestamp
+    reports_dir = staging_root / "reports"
+    raw_dir = staging_root / "raw"
+
+    _stage_files(reports_dir, reports)
+    _stage_files(raw_dir, raw_files)
+
+    client = uploader.build_s3_client(region_name=region)
+
+    uploader.upload_directory(
+        bucket=bucket,
+        prefix=prefix,
+        local_dir=reports_dir,
+        subdir="reports",
+        client=client,
+        metadata=metadata,
+    )
+    uploader.upload_directory(
+        bucket=bucket,
+        prefix=prefix,
+        local_dir=raw_dir,
+        subdir="raw",
+        client=client,
+        metadata=metadata,
+    )
+
+
+def _stage_files(target_dir: Path, sources: Iterable[Path]) -> None:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    counters: Dict[str, int] = {}
+    for source in sources:
+        if not source:
+            continue
+        path = Path(source)
+        if not path.exists() or not path.is_file():
+            continue
+        name = path.name
+        if name in counters:
+            counters[name] += 1
+            stem = path.stem
+            suffix = path.suffix
+            name = f"{stem}_{counters[name]}{suffix}"
+        else:
+            counters[name] = 0
+        destination = target_dir / name
+        shutil.copy2(path, destination)
+
+
+def _detect_git_sha() -> Optional[str]:
+    try:
+        output = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    sha = output.decode("utf-8").strip()
+    return sha or None
 
 
 if __name__ == "__main__":
