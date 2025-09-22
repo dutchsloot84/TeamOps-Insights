@@ -1,4 +1,6 @@
-import time, json, requests
+import time
+
+import requests
 from tenacity import retry, wait_exponential, stop_after_attempt
 
 # --- OAuth token refresh ---
@@ -54,7 +56,6 @@ def search_page(base_url, token, jql, fields_csv, start_at=0, max_results=100):
 # --- Fetch all comments if truncated on search response ---
 def get_all_comments_if_needed(base_url, token, issue):
     f = issue.get("fields", {})
-    summary = f.get("summary")
     comment_block = f.get("comment") or {}
     comments = comment_block.get("comments", []) or []
     total = comment_block.get("total", len(comments))
