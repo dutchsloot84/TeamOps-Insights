@@ -12,6 +12,8 @@ import streamlit as st
 
 from ui.data_source import RunRef, load_local_reports, load_s3_json, load_s3_listing
 from ui import transform
+from tracking import api as tracking_api
+from tracking.diff import render_diff_markdown
 
 st.set_page_config(page_title="ReleaseCopilot Audit Dashboard", layout="wide")
 
@@ -261,6 +263,8 @@ with compare_tab:
     else:
         current_metrics = transform.compute_kpis(selected_report)
         previous_metrics = transform.compute_kpis(previous_report)
+        diff_payload = tracking_api.compare(previous_report, selected_report)
+
         diff_cols = st.columns(5, gap="small")
         diff_cols[0].metric(
             "Total stories",
@@ -284,9 +288,35 @@ with compare_tab:
         )
         diff_cols[4].metric(
             "Coverage %",
-            f"{current_metrics['coverage_percent']:.2f}",
-            round(current_metrics["coverage_percent"] - previous_metrics["coverage_percent"], 2),
+            f"{diff_payload['coverage_current']:.2f}",
+            diff_payload["coverage_delta"],
         )
+
+        st.markdown("### Summary")
+        st.markdown(render_diff_markdown(diff_payload))
+
+        def _maybe_render_table(title: str, rows: list[dict[str, object]] | list[str]) -> None:
+            if not rows:
+                return
+            st.markdown(f"#### {title}")
+            if rows and isinstance(rows[0], dict):
+                df = pd.DataFrame(rows)
+            else:
+                df = pd.DataFrame({"value": rows})
+            if "commit_ids" in df.columns:
+                df["commit_ids"] = df["commit_ids"].apply(
+                    lambda value: ", ".join(value) if isinstance(value, list) else value
+                )
+            st.dataframe(df, use_container_width=True)
+
+        _maybe_render_table("Stories added", [{"key": key} for key in diff_payload["stories_added"]])
+        _maybe_render_table("Stories removed", [{"key": key} for key in diff_payload["stories_removed"]])
+        _maybe_render_table("Status changes", diff_payload["status_changes"])
+        _maybe_render_table("Assignee changes", diff_payload["assignee_changes"])
+        _maybe_render_table("Commits added", diff_payload["commits_added"])
+        _maybe_render_table("Commits removed", diff_payload["commits_removed"])
+        _maybe_render_table("New orphan commits", diff_payload["new_orphans"])
+        _maybe_render_table("Resolved orphan commits", diff_payload["resolved_orphans"])
 
         st.markdown("### Diff API")
         if diff_api_url:

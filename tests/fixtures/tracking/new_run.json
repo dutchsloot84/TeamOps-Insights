@@ -1,0 +1,66 @@
+{
+  "stories": [
+    {
+      "id": "1",
+      "key": "RC-1",
+      "summary": "Initial story",
+      "status": "Done",
+      "assignee": "Bob",
+      "components": ["backend"],
+      "fixVersions": ["1.1"],
+      "commitIds": ["c1", "c2"]
+    },
+    {
+      "id": "3",
+      "key": "RC-3",
+      "summary": "New work",
+      "status": "In Progress",
+      "assignee": "Carol",
+      "components": ["frontend"],
+      "fixVersions": ["1.1"],
+      "commitIds": ["c3"]
+    }
+  ],
+  "commits": [
+    {
+      "id": "c1",
+      "repo": "service",
+      "author": "Dev",
+      "date": "2024-01-01T00:00:00Z",
+      "message": "feat: start",
+      "linkedStoryKeys": ["RC-1"]
+    },
+    {
+      "id": "c2",
+      "repo": "service",
+      "author": "Dev",
+      "date": "2024-01-03T00:00:00Z",
+      "message": "feat: finish",
+      "linkedStoryKeys": ["RC-1"]
+    },
+    {
+      "id": "c3",
+      "repo": "service",
+      "author": "Dev",
+      "date": "2024-01-04T00:00:00Z",
+      "message": "feat: new",
+      "linkedStoryKeys": ["RC-3"]
+    },
+    {
+      "id": "c-orphan-new",
+      "repo": "service",
+      "author": "Dev",
+      "date": "2024-01-05T00:00:00Z",
+      "message": "chore: orphan",
+      "linkedStoryKeys": []
+    }
+  ],
+  "summary": {
+    "generatedAt": "2024-01-05T10:00:00Z",
+    "storyCount": 2,
+    "storyWithCommitsCount": 2,
+    "storyWithoutCommitsCount": 0,
+    "orphanCommitCount": 1,
+    "coveragePercent": 100.0
+  }
+}
