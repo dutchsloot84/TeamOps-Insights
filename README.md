@@ -133,6 +133,18 @@ tables can be exported as CSV files. A comparison mode allows diffing the
 current run against a previous report and integrates with the `#24` diff API via
 an optional endpoint field.
 
+## CI pipeline
+
+Every push or pull request that targets `main` or any `feature/*` branch runs the
+baseline GitHub Actions workflow defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+The pipeline provisions Python 3.11, installs both the runtime and development
+dependencies, runs focused Ruff lint checks (syntax and runtime errors) and the
+pytest suite, and invokes the existing packaging helper to build the Lambda
+bundle. A follow-up job ensures the infrastructure code synthesises by running
+`cdk synth` from `infra/cdk` with the AWS CDK CLI. When a tag matching
+`v*.*.*` is pushed, the packaged `lambda_bundle.zip` artifact is uploaded to the
+run for download.
+
 ## AWS Deployment
 
 ### Lambda

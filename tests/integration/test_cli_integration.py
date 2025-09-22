@@ -1,5 +1,4 @@
 import subprocess
-from pathlib import Path
 
 
 def test_cli_dry_run(tmp_path):
