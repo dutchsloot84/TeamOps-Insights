@@ -20,6 +20,8 @@ KNOWN_CONFIG_KEYS: set[str] = {
     "jira_base",
     "jira_token",
     "jira_user",
+    "s3_bucket",
+    "s3_prefix",
     "use_aws_secrets_manager",
 }
 
