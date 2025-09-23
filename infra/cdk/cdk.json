@@ -3,13 +3,12 @@
   "context": {
     "env": "dev",
     "region": "us-west-2",
-    "bucketName": "",
-    "jiraSecretArn": "",
-    "bitbucketSecretArn": "",
+    "bucketBase": "releasecopilot-artifacts",
     "lambdaAssetPath": "../../dist",
     "lambdaHandler": "main.handler",
-    "rcS3Prefix": "releasecopilot",
-    "lambdaTimeoutSec": 180,
-    "lambdaMemoryMb": 512
+    "jiraSecretArn": "",
+    "bitbucketSecretArn": "",
+    "scheduleEnabled": false,
+    "scheduleCron": "cron(30 1 * * ? *)"
   }
 }

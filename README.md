@@ -255,3 +255,18 @@ Published with MkDocs Material (auto-deployed from `main`):
 https://<your-github-username>.github.io/releasecopilot-ai
 
 Edit pages under `docs/` and push to `main` — the site republish is automated by GitHub Actions.
+
+### Deploying with CDK (dev)
+
+```bash
+cd infra/cdk
+python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\Activate
+pip install -r requirements.txt
+cdk bootstrap
+pytest -q
+cdk synth
+cdk deploy --require-approval never
+
+# override context if needed
+cdk deploy   --context bucketBase=releasecopilot-artifacts   --context jiraSecretArn=arn:aws:secretsmanager:...   --context bitbucketSecretArn=arn:aws:secretsmanager:...
+```

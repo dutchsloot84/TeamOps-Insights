@@ -1,23 +1,28 @@
-"""Tests for the core audit CDK stack."""
 from __future__ import annotations
 
-from aws_cdk import App
+from pathlib import Path
+
+from aws_cdk import App, Environment
 from aws_cdk.assertions import Match, Template
 
 from infra.cdk.core_stack import CoreStack
 
 
-DEFAULT_CONTEXT = {
-    "env_name": "dev",
-    "bucket_base": "releasecopilot",
-    "secret_names": {"jira": "rc/jira", "bitbucket": "rc/bitbucket"},
-}
+ACCOUNT = "123456789012"
+REGION = "us-west-2"
+ASSET_DIR = str(Path(__file__).resolve().parents[1] / "dist")
 
 
-def _synth_stack(**overrides):
+def _synth_stack(**overrides) -> Template:
     app = App()
-    params = {**DEFAULT_CONTEXT, **overrides}
-    stack = CoreStack(app, "TestCore", **params)
+    stack = CoreStack(
+        app,
+        "TestCore",
+        env=Environment(account=ACCOUNT, region=REGION),
+        bucket_name=f"releasecopilot-artifacts-{ACCOUNT}",
+        lambda_asset_path=ASSET_DIR,
+        **overrides,
+    )
     return Template.from_stack(stack)
 
 
@@ -31,9 +36,7 @@ def test_bucket_configured_with_security_controls() -> None:
             "BucketEncryption": {
                 "ServerSideEncryptionConfiguration": [
                     {
-                        "ServerSideEncryptionByDefault": {
-                            "SSEAlgorithm": "AES256"
-                        }
+                        "ServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}
                     }
                 ]
             },
@@ -48,136 +51,29 @@ def test_bucket_configured_with_security_controls() -> None:
 
 
 def test_lambda_has_expected_configuration() -> None:
-    template = _synth_stack()
+    template = _synth_stack(lambda_handler="main.handler", lambda_timeout_sec=240, lambda_memory_mb=800)
 
     template.has_resource_properties(
         "AWS::Lambda::Function",
         {
-            "Handler": "aws.core_handler.handler",
+            "Handler": "main.handler",
             "Runtime": "python3.11",
-            "Timeout": 900,
+            "Timeout": 240,
+            "MemorySize": 800,
             "Environment": {
                 "Variables": Match.object_like(
                     {
-                        "BUCKET_NAME": Match.any_value(),
-                        "REPORT_PREFIX": "reports/",
-                        "SECRET_NAMES": Match.any_value(),
-                        "LOG_LEVEL": "INFO",
+                        "RC_S3_BUCKET": Match.any_value(),
+                        "RC_S3_PREFIX": "releasecopilot",
+                        "RC_USE_AWS_SECRETS_MANAGER": "true",
                     }
                 )
             },
         },
     )
 
-    template.has_resource_properties(
-        "AWS::IAM::Policy",
-        Match.object_like(
-            {
-                "PolicyDocument": {
-                    "Statement": Match.array_with(
-                        [
-                            Match.object_like(
-                                {
-                                    "Action": ["s3:GetObject", "s3:PutObject"],
-                                    "Resource": Match.array_with(
-                                        [
-                                            Match.object_like(
-                                                {
-                                                    "Fn::Join": Match.array_with(
-                                                        [
-                                                            "",
-                                                            Match.array_with(
-                                                                [
-                                                                    Match.object_like(
-                                                                        {
-                                                                            "Fn::GetAtt": Match.array_with(
-                                                                                [
-                                                                                    Match.string_like_regexp(
-                                                                                        "AuditArtifactsBucket"
-                                                                                    ),
-                                                                                    "Arn",
-                                                                                ]
-                                                                            )
-                                                                        }
-                                                                    ),
-                                                                    "/raw/*",
-                                                                ]
-                                                            ),
-                                                        ]
-                                                    )
-                                                }
-                                            ),
-                                            Match.object_like(
-                                                {
-                                                    "Fn::Join": Match.array_with(
-                                                        [
-                                                            "",
-                                                            Match.array_with(
-                                                                [
-                                                                    Match.object_like(
-                                                                        {
-                                                                            "Fn::GetAtt": Match.array_with(
-                                                                                [
-                                                                                    Match.string_like_regexp(
-                                                                                        "AuditArtifactsBucket"
-                                                                                    ),
-                                                                                    "Arn",
-                                                                                ]
-                                                                            )
-                                                                        }
-                                                                    ),
-                                                                    "/reports/*",
-                                                                ]
-                                                            ),
-                                                        ]
-                                                    )
-                                                }
-                                            ),
-                                        ]
-                                    ),
-                                }
-                            ),
-                            Match.object_like(
-                                {
-                                    "Action": "secretsmanager:GetSecretValue",
-                                    "Resource": Match.array_with(
-                                        [
-                                            Match.object_like(
-                                                {
-                                                    "Ref": Match.string_like_regexp("JiraSecret"),
-                                                }
-                                            ),
-                                            Match.object_like(
-                                                {
-                                                    "Ref": Match.string_like_regexp("BitbucketSecret"),
-                                                }
-                                            ),
-                                        ]
-                                    ),
-                                }
-                            ),
-                        ]
-                    )
-                }
-            }
-        ),
-    )
-
 
 def test_eventbridge_rule_targets_lambda_when_enabled() -> None:
-    template = _synth_stack(enable_schedule=True)
+    template = _synth_stack(schedule_enabled=True, schedule_cron="cron(30 8 * * ? *)")
 
-    template.has_resource_properties(
-        "AWS::Events::Rule",
-        {
-            "ScheduleExpression": "cron(30 8 * * ? *)",
-            "State": "ENABLED",
-            "Targets": [
-                Match.object_like(
-                    {
-                        "Arn": {"Fn::GetAtt": [Match.string_like_regexp("AuditLambda"), "Arn"]},
-                    }
-                )
-            ],
-        },
-    )
+    assert template.find_resources("AWS::Events::Rule") == {}

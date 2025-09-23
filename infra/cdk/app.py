@@ -1,61 +1,70 @@
-"""CDK application entrypoint for the Release Copilot core stack."""
+"""CDK application entrypoint for the ReleaseCopilot infrastructure."""
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Dict
 
-from aws_cdk import App, Aws, Environment
+from aws_cdk import App, Environment
 
-from .core_stack import CoreStack
+try:
+    from .core_stack import CoreStack
+except ImportError:  # pragma: no cover
+    from core_stack import CoreStack  # type: ignore
 
 
-def _context(app: App, key: str, default: Any | None = None) -> Any:
+def _context(app: App, key: str, default: Any) -> Any:
     value = app.node.try_get_context(key)
-    if value is None:
-        return default
-    return value
+    return default if value is None else value
+
+
+def _to_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    return bool(value)
+
+
+def _load_context(app: App) -> Dict[str, Any]:
+    return {
+        "env": str(_context(app, "env", "dev")),
+        "region": str(_context(app, "region", "us-west-2")),
+        "bucketBase": str(_context(app, "bucketBase", "releasecopilot-artifacts")),
+        "jiraSecretArn": str(_context(app, "jiraSecretArn", "")),
+        "bitbucketSecretArn": str(_context(app, "bitbucketSecretArn", "")),
+        "scheduleEnabled": _to_bool(_context(app, "scheduleEnabled", False)),
+        "scheduleCron": str(_context(app, "scheduleCron", "")),
+        "lambdaAssetPath": str(_context(app, "lambdaAssetPath", "../../dist")),
+        "lambdaHandler": str(_context(app, "lambdaHandler", "main.handler")),
+        "lambdaTimeoutSec": int(_context(app, "lambdaTimeoutSec", 180)),
+        "lambdaMemoryMb": int(_context(app, "lambdaMemoryMb", 512)),
+    }
 
 
 app = App()
+context = _load_context(app)
 
-env_name = str(_context(app, "env", "dev"))
-region = str(_context(app, "region", os.getenv("CDK_DEFAULT_REGION") or "us-west-2"))
+account_id = os.getenv("CDK_DEFAULT_ACCOUNT")
+if not account_id:
+    raise RuntimeError("CDK_DEFAULT_ACCOUNT environment variable must be set for synthesis")
 
-jira_secret_arn = str(_context(app, "jiraSecretArn", "") or "")
-bitbucket_secret_arn = str(_context(app, "bitbucketSecretArn", "") or "")
-lambda_asset_path = str(_context(app, "lambdaAssetPath", "../../dist") or "../../dist")
-lambda_handler = str(_context(app, "lambdaHandler", "main.handler") or "main.handler")
-rc_s3_prefix = str(_context(app, "rcS3Prefix", "releasecopilot") or "releasecopilot")
-lambda_timeout_sec = int(_context(app, "lambdaTimeoutSec", 180) or 180)
-lambda_memory_mb = int(_context(app, "lambdaMemoryMb", 512) or 512)
+bucket_name = f"{context['bucketBase']}-{account_id}"
 
-raw_bucket_name = _context(app, "bucketName", "") or ""
-if raw_bucket_name:
-    bucket_name = str(raw_bucket_name)
-else:
-    account_from_env = os.getenv("CDK_DEFAULT_ACCOUNT")
-    if account_from_env:
-        bucket_name = f"releasecopilot-artifacts-{account_from_env}"
-    else:
-        bucket_name = f"releasecopilot-artifacts-{Aws.ACCOUNT_ID}"
-
-aws_environment = Environment(
-    account=os.getenv("CDK_DEFAULT_ACCOUNT"),
-    region=region,
-)
+environment = Environment(account=account_id, region=context["region"])
 
 CoreStack(
     app,
-    f"ReleaseCopilot-{env_name}-Core",
-    env=aws_environment,
+    f"ReleaseCopilot-{context['env']}-Core",
+    env=environment,
     bucket_name=bucket_name,
-    jira_secret_arn=jira_secret_arn or None,
-    bitbucket_secret_arn=bitbucket_secret_arn or None,
-    lambda_asset_path=lambda_asset_path,
-    lambda_handler=lambda_handler,
-    rc_s3_prefix=rc_s3_prefix,
-    lambda_timeout_sec=lambda_timeout_sec,
-    lambda_memory_mb=lambda_memory_mb,
+    jira_secret_arn=context["jiraSecretArn"] or None,
+    bitbucket_secret_arn=context["bitbucketSecretArn"] or None,
+    lambda_asset_path=context["lambdaAssetPath"],
+    lambda_handler=context["lambdaHandler"],
+    lambda_timeout_sec=context["lambdaTimeoutSec"],
+    lambda_memory_mb=context["lambdaMemoryMb"],
+    schedule_enabled=context["scheduleEnabled"],
+    schedule_cron=context["scheduleCron"],
 )
 
 app.synth()
