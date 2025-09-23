@@ -1,19 +1,16 @@
-"""Core infrastructure stack for Release Copilot audit workflows."""
+"""CDK stack defining the Release Copilot core infrastructure."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Mapping
+from typing import Optional
 
 from aws_cdk import (
     CfnOutput,
     Duration,
-    RemovalPolicy,
     Stack,
-    aws_events as events,
-    aws_events_targets as targets,
     aws_iam as iam,
     aws_lambda as _lambda,
+    aws_logs as logs,
     aws_s3 as s3,
     aws_secretsmanager as secretsmanager,
 )
@@ -21,153 +18,153 @@ from constructs import Construct
 
 
 class CoreStack(Stack):
-    """Provision the foundational audit resources."""
+    """Provision the Release Copilot storage, secrets, and execution runtime."""
 
     def __init__(
         self,
         scope: Construct,
         construct_id: str,
         *,
-        env_name: str,
-        bucket_base: str,
-        secret_names: Mapping[str, str],
-        report_prefix: str = "reports/",
-        raw_prefix: str = "raw/",
-        enable_schedule: bool = False,
-        schedule_expression: str = "cron(30 8 * * ? *)",
-        retain_bucket: bool = False,
-        fix_version: str | None = None,
-        log_level: str = "INFO",
-        lambda_module: str = "aws.core_handler",
+        bucket_name: str,
+        jira_secret_arn: Optional[str] = None,
+        bitbucket_secret_arn: Optional[str] = None,
+        lambda_asset_path: str = "../../dist",
+        lambda_handler: str = "main.handler",
+        rc_s3_prefix: str = "releasecopilot",
+        lambda_timeout_sec: int = 180,
+        lambda_memory_mb: int = 512,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        self._report_prefix = self._normalise_prefix(report_prefix)
-        self._raw_prefix = self._normalise_prefix(raw_prefix)
-
-        bucket_name = f"{bucket_base}-{env_name}"
-        removal_policy = RemovalPolicy.RETAIN if retain_bucket else RemovalPolicy.DESTROY
+        asset_path = Path(lambda_asset_path).expanduser().resolve()
+        normalized_prefix = self._normalize_prefix(rc_s3_prefix)
 
         self.bucket = s3.Bucket(
             self,
-            "AuditArtifactsBucket",
+            "ArtifactsBucket",
             bucket_name=bucket_name,
-            versioned=True,
-            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             encryption=s3.BucketEncryption.S3_MANAGED,
-            enforce_ssl=True,
-            removal_policy=removal_policy,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            versioned=True,
         )
 
-        lifecycle_transition = s3.Transition(
-            storage_class=s3.StorageClass.INTELLIGENT_TIERING,
-            transition_after=Duration.days(30),
+        self.bucket.add_lifecycle_rule(
+            id="RawLifecycle",
+            prefix="raw/",
+            transitions=[
+                s3.Transition(
+                    storage_class=s3.StorageClass.INFREQUENT_ACCESS,
+                    transition_after=Duration.days(30),
+                )
+            ],
+            expiration=Duration.days(90),
         )
-        for prefix, rule_id in ((self._raw_prefix, "RawToIa"), (self._report_prefix, "ReportsToIa")):
-            self.bucket.add_lifecycle_rule(
-                id=rule_id,
-                prefix=prefix,
-                transitions=[lifecycle_transition],
-                abort_incomplete_multipart_upload_after=Duration.days(7),
-            )
 
-        self.secrets: dict[str, secretsmanager.Secret] = {}
-        for key, name in secret_names.items():
-            safe_id = f"{key.title().replace('/', '').replace('-', '')}Secret"
-            secret = secretsmanager.Secret(
-                self,
-                safe_id,
-                secret_name=name,
-                description=f"OAuth credential for {key}",
-            )
-            self.secrets[key] = secret
+        self.bucket.add_lifecycle_rule(
+            id="ReportsLifecycle",
+            prefix="reports/",
+            transitions=[
+                s3.Transition(
+                    storage_class=s3.StorageClass.INFREQUENT_ACCESS,
+                    transition_after=Duration.days(60),
+                )
+            ],
+        )
 
-        self.lambda_role = iam.Role(
+        self.jira_secret = self._resolve_secret(
+            "JiraSecret",
+            provided_arn=jira_secret_arn,
+            description="Placeholder Jira OAuth secret for Release Copilot",
+        )
+        self.bitbucket_secret = self._resolve_secret(
+            "BitbucketSecret",
+            provided_arn=bitbucket_secret_arn,
+            description="Placeholder Bitbucket OAuth secret for Release Copilot",
+        )
+        secret_arns = [
+            self.jira_secret.secret_arn,
+            self.bitbucket_secret.secret_arn,
+        ]
+
+        self.execution_role = iam.Role(
             self,
-            "AuditLambdaExecutionRole",
+            "LambdaExecutionRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-            description="Execution role for Release Copilot audit Lambda",
+            description="Least-privilege execution role for Release Copilot Lambda",
         )
 
-        self.lambda_role.attach_inline_policy(
-            iam.Policy(
-                self,
-                "AuditLambdaPermissions",
-                statements=[
-                    iam.PolicyStatement(
-                        actions=["s3:GetObject", "s3:PutObject"],
-                        resources=[
-                            self.bucket.arn_for_objects(f"{self._raw_prefix}*"),
-                            self.bucket.arn_for_objects(f"{self._report_prefix}*"),
-                        ],
-                    ),
-                    iam.PolicyStatement(
-                        actions=["secretsmanager:GetSecretValue"],
-                        resources=[secret.secret_arn for secret in self.secrets.values()],
-                    ),
-                    iam.PolicyStatement(
-                        actions=[
-                            "logs:CreateLogGroup",
-                            "logs:CreateLogStream",
-                            "logs:PutLogEvents",
-                        ],
-                        resources=["*"],
-                    ),
-                ],
-            )
-        )
-
-        self.step_functions_role = iam.Role(
+        iam.Policy(
             self,
-            "AuditStateMachineRole",
-            assumed_by=iam.ServicePrincipal("states.amazonaws.com"),
-            description="Scaffold role for future Step Functions orchestration",
-        )
+            "LambdaExecutionPolicy",
+            statements=[
+                iam.PolicyStatement(
+                    actions=["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+                    resources=["*"],
+                ),
+                iam.PolicyStatement(
+                    actions=["s3:ListBucket"],
+                    resources=[self.bucket.bucket_arn],
+                    conditions={"StringLike": {"s3:prefix": [f"{normalized_prefix}/"]}},
+                ),
+                iam.PolicyStatement(
+                    actions=["s3:GetObject", "s3:PutObject"],
+                    resources=[self.bucket.arn_for_objects(f"{normalized_prefix}/*")],
+                ),
+                iam.PolicyStatement(
+                    actions=["secretsmanager:GetSecretValue"],
+                    resources=secret_arns,
+                ),
+            ],
+        ).attach_to_role(self.execution_role)
 
-        lambda_env = {
-            "BUCKET_NAME": self.bucket.bucket_name,
-            "REPORT_PREFIX": self._report_prefix,
-            "SECRET_NAMES": json.dumps({k: v.secret_name for k, v in self.secrets.items()}),
-            "LOG_LEVEL": log_level,
+        environment = {
+            "RC_S3_BUCKET": self.bucket.bucket_name,
+            "RC_S3_PREFIX": normalized_prefix,
+            "RC_USE_AWS_SECRETS_MANAGER": "true",
         }
-        if fix_version:
-            lambda_env["FIX_VERSION"] = fix_version
 
-        dist_dir = Path(__file__).resolve().parents[2] / "dist" / "lambda"
-
-        self.audit_lambda = _lambda.Function(
+        self.lambda_function = _lambda.Function(
             self,
-            "AuditLambda",
+            "ReleaseCopilotLambda",
             runtime=_lambda.Runtime.PYTHON_3_11,
-            handler=f"{lambda_module}.handler",
-            code=_lambda.Code.from_asset(str(dist_dir)),
-            timeout=Duration.minutes(15),
-            memory_size=1024,
-            role=self.lambda_role,
-            environment=lambda_env,
+            handler=lambda_handler,
+            code=_lambda.Code.from_asset(str(asset_path)),
+            timeout=Duration.seconds(lambda_timeout_sec),
+            memory_size=lambda_memory_mb,
+            role=self.execution_role,
+            environment=environment,
+            log_retention=logs.RetentionDays.ONE_MONTH,
         )
 
-        self.schedule = None
-        if enable_schedule:
-            self.schedule = events.Rule(
-                self,
-                "DailyAuditSchedule",
-                schedule=events.Schedule.expression(schedule_expression),
-            )
-            self.schedule.add_target(targets.LambdaFunction(self.audit_lambda))
-
-        CfnOutput(self, "BucketName", value=self.bucket.bucket_name)
-        CfnOutput(self, "AuditLambdaName", value=self.audit_lambda.function_name)
-        CfnOutput(self, "AuditLambdaArn", value=self.audit_lambda.function_arn)
-        if self.schedule is not None:
-            CfnOutput(self, "DailyRuleName", value=self.schedule.rule_name)
+        # EventBridge schedule wiring could be added later using context flags
+        CfnOutput(self, "ArtifactsBucketName", value=self.bucket.bucket_name)
+        CfnOutput(self, "LambdaName", value=self.lambda_function.function_name)
+        CfnOutput(self, "LambdaArn", value=self.lambda_function.function_arn)
 
     @staticmethod
-    def _normalise_prefix(prefix: str) -> str:
-        cleaned = prefix.strip()
-        if not cleaned:
-            return ""
-        if not cleaned.endswith("/"):
-            cleaned = f"{cleaned}/"
-        return cleaned
+    def _normalize_prefix(prefix: str) -> str:
+        stripped = prefix.strip()
+        if not stripped:
+            return "releasecopilot"
+        return stripped.strip("/")
+
+    def _resolve_secret(
+        self,
+        construct_id: str,
+        *,
+        provided_arn: Optional[str],
+        description: str,
+    ) -> secretsmanager.ISecret:
+        if provided_arn:
+            return secretsmanager.Secret.from_secret_complete_arn(
+                self, construct_id, provided_arn
+            )
+        return secretsmanager.Secret(
+            self,
+            construct_id,
+            description=description,
+            generate_secret_string=secretsmanager.SecretStringGenerator(
+                exclude_punctuation=True
+            ),
+        )

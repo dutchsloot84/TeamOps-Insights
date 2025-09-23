@@ -2,15 +2,14 @@
   "app": "python3 app.py",
   "context": {
     "env": "dev",
-    "project": "releasecopilot",
-    "bucketBase": "releasecopilot-audit",
-    "reportPrefix": "reports/",
-    "rawPrefix": "raw/",
-    "logLevel": "INFO",
-    "lambdaModule": "aws.core_handler",
-    "secrets": {
-      "jira": "rc/jira",
-      "bitbucket": "rc/bitbucket"
-    }
+    "region": "us-west-2",
+    "bucketName": "",
+    "jiraSecretArn": "",
+    "bitbucketSecretArn": "",
+    "lambdaAssetPath": "../../dist",
+    "lambdaHandler": "main.handler",
+    "rcS3Prefix": "releasecopilot",
+    "lambdaTimeoutSec": 180,
+    "lambdaMemoryMb": 512
   }
 }
