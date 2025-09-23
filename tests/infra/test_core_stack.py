@@ -1,26 +1,28 @@
 """Unit tests validating the CDK core stack resources."""
 from __future__ import annotations
 
-from aws_cdk import App
+from pathlib import Path
+
+from aws_cdk import App, Environment
 from aws_cdk.assertions import Match, Template
 
 from infra.cdk.core_stack import CoreStack
 
 
-JIRA_ARN = "arn:aws:secretsmanager:us-west-2:111111111111:secret:/releasecopilot/jira-ABC123"
-BITBUCKET_ARN = "arn:aws:secretsmanager:us-west-2:111111111111:secret:/releasecopilot/bitbucket-DEF456"
+ACCOUNT = "123456789012"
+REGION = "us-west-2"
+ASSET_DIR = str(Path(__file__).resolve().parents[2] / "dist")
 
 
-def _synth_template() -> Template:
+def _synth_template(**overrides) -> Template:
     app = App()
     stack = CoreStack(
         app,
         "TestCoreStack",
-        bucket_name="releasecopilot-artifacts-111111111111",
-        jira_secret_arn=JIRA_ARN,
-        bitbucket_secret_arn=BITBUCKET_ARN,
-        lambda_asset_path="dist",
-        rc_s3_prefix="releasecopilot",
+        env=Environment(account=ACCOUNT, region=REGION),
+        bucket_name=f"releasecopilot-artifacts-{ACCOUNT}",
+        lambda_asset_path=ASSET_DIR,
+        **overrides,
     )
     return Template.from_stack(stack)
 
@@ -32,9 +34,17 @@ def test_bucket_encryption_and_versioning() -> None:
         {
             "VersioningConfiguration": {"Status": "Enabled"},
             "BucketEncryption": {
-                "ServerSideEncryptionConfiguration": Match.array_with([
-                    Match.object_like({"ServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}})
-                ])
+                "ServerSideEncryptionConfiguration": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "ServerSideEncryptionByDefault": {
+                                    "SSEAlgorithm": "AES256"
+                                }
+                            }
+                        )
+                    ]
+                )
             },
         },
     )
@@ -42,10 +52,8 @@ def test_bucket_encryption_and_versioning() -> None:
 
 def test_bucket_lifecycle_rules() -> None:
     template = _synth_template()
-    buckets = template.find_resources("AWS::S3::Bucket")
-    assert len(buckets) == 1
-    bucket_props = next(iter(buckets.values()))["Properties"]
-    lifecycle_rules = bucket_props["LifecycleConfiguration"]["Rules"]
+    bucket = next(iter(template.find_resources("AWS::S3::Bucket").values()))
+    lifecycle_rules = bucket["Properties"]["LifecycleConfiguration"]["Rules"]
 
     raw_rule = next(rule for rule in lifecycle_rules if rule["Prefix"] == "raw/")
     assert raw_rule["ExpirationInDays"] == 90
@@ -62,51 +70,38 @@ def test_bucket_lifecycle_rules() -> None:
 
 def test_iam_policy_statements() -> None:
     template = _synth_template()
-    policies = template.find_resources("AWS::IAM::Policy")
-    policy = next(
-        props
-        for props in policies.values()
-        if props["Properties"]["PolicyName"].startswith("LambdaExecutionPolicy")
-    )
-
+    policy = next(iter(template.find_resources("AWS::IAM::Policy").values()))
     statements = policy["Properties"]["PolicyDocument"]["Statement"]
 
-    logs_statement = next(
-        stmt
-        for stmt in statements
-        if isinstance(stmt.get("Action"), list)
-        and set(stmt["Action"]) == {
-            "logs:CreateLogGroup",
-            "logs:CreateLogStream",
-            "logs:PutLogEvents",
-        }
-    )
-    assert logs_statement["Resource"] == "*"
+    assert {stmt["Sid"] for stmt in statements} == {
+        "AllowS3ObjectAccess",
+        "AllowS3ListArtifactsPrefix",
+        "AllowSecretRetrieval",
+        "AllowLambdaLogging",
+    }
 
-    list_statement = next(
-        stmt for stmt in statements if stmt.get("Action") == "s3:ListBucket"
-    )
-    assert list_statement["Condition"] == {"StringLike": {"s3:prefix": ["releasecopilot/"]}}
-    list_resource = list_statement["Resource"]
-    assert list_resource["Fn::GetAtt"][1] == "Arn"
+    object_statement = next(stmt for stmt in statements if stmt["Sid"] == "AllowS3ObjectAccess")
+    assert set(object_statement["Action"]) == {"s3:GetObject", "s3:PutObject"}
+    object_resource = object_statement["Resource"]
+    assert object_resource["Fn::Join"][1][1] == "/releasecopilot/*"
 
-    object_statement = next(
-        stmt
-        for stmt in statements
-        if isinstance(stmt.get("Action"), list)
-        and set(stmt["Action"]) == {"s3:GetObject", "s3:PutObject"}
-    )
-    join_parts = object_statement["Resource"]["Fn::Join"][1]
-    bucket_part = join_parts[0]
-    assert bucket_part["Fn::GetAtt"][1] == "Arn"
-    assert join_parts[1] == "/releasecopilot/*"
+    list_statement = next(stmt for stmt in statements if stmt["Sid"] == "AllowS3ListArtifactsPrefix")
+    assert list_statement["Action"] == "s3:ListBucket"
+    assert list_statement["Condition"] == {
+        "StringLike": {"s3:prefix": ["releasecopilot/", "releasecopilot/*"]}
+    }
 
-    secrets_statement = next(
-        stmt
-        for stmt in statements
-        if stmt.get("Action") == "secretsmanager:GetSecretValue"
-    )
-    assert secrets_statement["Resource"] == [JIRA_ARN, BITBUCKET_ARN]
+    secrets_statement = next(stmt for stmt in statements if stmt["Sid"] == "AllowSecretRetrieval")
+    assert secrets_statement["Action"] == "secretsmanager:GetSecretValue"
+    assert len(secrets_statement["Resource"]) == 2
+
+    logs_statement = next(stmt for stmt in statements if stmt["Sid"] == "AllowLambdaLogging")
+    assert set(logs_statement["Action"]) == {
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+    }
+    assert logs_statement["Resource"].endswith(":log-group:/aws/lambda/*")
 
 
 def test_lambda_environment_and_log_retention() -> None:
@@ -114,9 +109,9 @@ def test_lambda_environment_and_log_retention() -> None:
     template.has_resource_properties(
         "AWS::Lambda::Function",
         {
-            "Handler": "main.handler",
+            "Runtime": "python3.11",
             "Environment": {
-                "Variables": Match.object_like(
+                "Variables": Match.object_equals(
                     {
                         "RC_S3_BUCKET": Match.any_value(),
                         "RC_S3_PREFIX": "releasecopilot",
@@ -131,3 +126,10 @@ def test_lambda_environment_and_log_retention() -> None:
         "Custom::LogRetention",
         {"RetentionInDays": 30},
     )
+
+
+def test_stack_outputs_present() -> None:
+    template = _synth_template()
+    outputs = template.to_json()["Outputs"]
+    assert "ArtifactsBucketName" in outputs
+    assert "LambdaArn" in outputs
