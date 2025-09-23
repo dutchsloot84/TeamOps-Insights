@@ -1,0 +1,14 @@
+[
+  {
+    "key": "STORY-1",
+    "status": "In Progress",
+    "assignee": "Alice",
+    "commitIds": ["abc123"]
+  },
+  {
+    "key": "STORY-2",
+    "status": "Done",
+    "assignee": "Bob",
+    "commitIds": []
+  }
+]
