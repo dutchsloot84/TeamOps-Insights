@@ -10,6 +10,7 @@ aws:
 jira:
   base_url: https://your-domain.atlassian.net
   cloud_id: your-cloud-id
+  issue_table_name: releasecopilot-ai-jira-issues
 bitbucket:
   workspace: your-workspace
   default_branches:

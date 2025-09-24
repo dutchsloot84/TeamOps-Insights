@@ -46,6 +46,7 @@ def _load_context(app: App) -> Dict[str, Any]:
         "lambdaHandler": str(_context(app, "lambdaHandler", "main.handler")),
         "lambdaTimeoutSec": int(_context(app, "lambdaTimeoutSec", 180)),
         "lambdaMemoryMb": int(_context(app, "lambdaMemoryMb", 512)),
+        "jiraWebhookSecretArn": str(_context(app, "jiraWebhookSecretArn", "")),
     }
 
 
@@ -135,6 +136,7 @@ CoreStack(
     lambda_memory_mb=context["lambdaMemoryMb"],
     schedule_enabled=context["scheduleEnabled"],
     schedule_cron=context["scheduleCron"],
+    jira_webhook_secret_arn=context["jiraWebhookSecretArn"] or None,
 )
 
 app.synth()

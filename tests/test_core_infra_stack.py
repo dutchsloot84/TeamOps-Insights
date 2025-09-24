@@ -66,10 +66,60 @@ def test_lambda_has_expected_configuration() -> None:
                         "RC_S3_BUCKET": Match.any_value(),
                         "RC_S3_PREFIX": "releasecopilot",
                         "RC_USE_AWS_SECRETS_MANAGER": "true",
+                        "JIRA_TABLE_NAME": Match.any_value(),
                     }
                 )
             },
         },
+    )
+
+
+def test_webhook_lambda_and_api_created() -> None:
+    template = _synth_stack()
+
+    template.has_resource_properties(
+        "AWS::DynamoDB::Table",
+        {
+            "PointInTimeRecoverySpecification": {"PointInTimeRecoveryEnabled": True},
+            "BillingMode": "PAY_PER_REQUEST",
+            "KeySchema": [
+                {"AttributeName": "issue_id", "KeyType": "HASH"},
+            ],
+            "AttributeDefinitions": Match.array_with(
+                [
+                    Match.object_like({"AttributeName": "issue_id"}),
+                    Match.object_like({"AttributeName": "fix_version"}),
+                    Match.object_like({"AttributeName": "status"}),
+                    Match.object_like({"AttributeName": "assignee"}),
+                ]
+            ),
+            "GlobalSecondaryIndexes": Match.array_with(
+                [
+                    Match.object_like({"IndexName": "FixVersionIndex"}),
+                    Match.object_like({"IndexName": "StatusIndex"}),
+                    Match.object_like({"IndexName": "AssigneeIndex"}),
+                ]
+            ),
+            "SSESpecification": {"SSEEnabled": True},
+        },
+    )
+
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        Match.object_like(
+            {
+                "Handler": "handler.handler",
+                "Runtime": "python3.11",
+                "Environment": {
+                    "Variables": Match.object_like({"TABLE_NAME": Match.any_value()}),
+                },
+            }
+        ),
+    )
+
+    template.has_resource_properties(
+        "AWS::ApiGateway::RestApi",
+        {"Name": "ReleaseCopilotJiraWebhook"},
     )
 
 

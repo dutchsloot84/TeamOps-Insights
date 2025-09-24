@@ -7,9 +7,12 @@ from typing import Optional
 from aws_cdk import (
     CfnOutput,
     Duration,
+    RemovalPolicy,
     Stack,
+    aws_apigateway as apigateway,
     aws_cloudwatch as cw,
     aws_cloudwatch_actions as actions,
+    aws_dynamodb as dynamodb,
     aws_events as events,
     aws_events_targets as targets,
     aws_iam as iam,
@@ -42,6 +45,7 @@ class CoreStack(Stack):
         lambda_memory_mb: int = 512,
         schedule_enabled: bool = False,
         schedule_cron: str | None = None,
+        jira_webhook_secret_arn: Optional[str] = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -122,12 +126,96 @@ class CoreStack(Stack):
             log_retention=logs.RetentionDays.ONE_MONTH,
         )
 
+        self.jira_table = dynamodb.Table(
+            self,
+            "JiraIssuesTable",
+            partition_key=dynamodb.Attribute(
+                name="issue_id", type=dynamodb.AttributeType.STRING
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            point_in_time_recovery=True,
+            removal_policy=RemovalPolicy.RETAIN,
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
+        )
+
+        self.jira_table.add_global_secondary_index(
+            index_name="FixVersionIndex",
+            partition_key=dynamodb.Attribute(
+                name="fix_version", type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(name="updated_at", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+        self.jira_table.add_global_secondary_index(
+            index_name="StatusIndex",
+            partition_key=dynamodb.Attribute(name="status", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="updated_at", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+        self.jira_table.add_global_secondary_index(
+            index_name="AssigneeIndex",
+            partition_key=dynamodb.Attribute(name="assignee", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="updated_at", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+
+        self.lambda_function.add_environment("JIRA_TABLE_NAME", self.jira_table.table_name)
+        self.jira_table.grant_read_data(self.lambda_function)
+
+        webhook_secret = self._resolve_secret(
+            "JiraWebhookSecret",
+            provided_arn=jira_webhook_secret_arn,
+            description="Shared secret used to authenticate Jira webhook deliveries",
+        )
+
+        webhook_environment = {
+            "TABLE_NAME": self.jira_table.table_name,
+            "LOG_LEVEL": "INFO",
+            "RC_DDB_MAX_ATTEMPTS": "5",
+        }
+        if webhook_secret:
+            webhook_environment["WEBHOOK_SECRET_ARN"] = webhook_secret.secret_arn
+
+        self.webhook_lambda = _lambda.Function(
+            self,
+            "JiraWebhookLambda",
+            runtime=_lambda.Runtime.PYTHON_3_11,
+            handler="handler.handler",
+            code=_lambda.Code.from_asset("services/jira_sync_webhook"),
+            timeout=Duration.seconds(60),
+            memory_size=256,
+            environment=webhook_environment,
+            log_retention=logs.RetentionDays.ONE_MONTH,
+        )
+
+        self.jira_table.grant_read_write_data(self.webhook_lambda)
+        if webhook_secret:
+            webhook_secret.grant_read(self.webhook_lambda)
+
+        self.webhook_api = apigateway.RestApi(
+            self,
+            "JiraWebhookApi",
+            rest_api_name="ReleaseCopilotJiraWebhook",
+            deploy_options=apigateway.StageOptions(
+                logging_level=apigateway.MethodLoggingLevel.INFO,
+                data_trace_enabled=False,
+                metrics_enabled=True,
+            ),
+        )
+
+        jira_resource = self.webhook_api.root.add_resource("jira")
+        webhook_resource = jira_resource.add_resource("webhook")
+        webhook_integration = apigateway.LambdaIntegration(self.webhook_lambda)
+        webhook_resource.add_method("POST", webhook_integration)
+
         self._add_lambda_alarms()
         self._add_schedule(schedule_enabled=schedule_enabled, schedule_cron=schedule_cron)
 
         CfnOutput(self, "ArtifactsBucketName", value=self.bucket.bucket_name)
         CfnOutput(self, "LambdaName", value=self.lambda_function.function_name)
         CfnOutput(self, "LambdaArn", value=self.lambda_function.function_arn)
+        CfnOutput(self, "JiraTableName", value=self.jira_table.table_name)
+        CfnOutput(self, "JiraWebhookUrl", value=self.webhook_api.url)
 
     def _attach_policies(self) -> None:
         prefix_objects_arn = self.bucket.arn_for_objects(f"{self.RC_S3_PREFIX}/*")

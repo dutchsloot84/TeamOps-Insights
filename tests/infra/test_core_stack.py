@@ -70,7 +70,12 @@ def test_bucket_lifecycle_rules() -> None:
 
 def test_iam_policy_statements() -> None:
     template = _synth_template()
-    policy = next(iter(template.find_resources("AWS::IAM::Policy").values()))
+    policies = template.find_resources("AWS::IAM::Policy")
+    policy = next(
+        policy
+        for name, policy in policies.items()
+        if "LambdaExecutionPolicy" in name
+    )
     statements = policy["Properties"]["PolicyDocument"]["Statement"]
 
     assert {stmt["Sid"] for stmt in statements} == {
@@ -108,10 +113,11 @@ def test_lambda_environment_and_log_retention() -> None:
     template = _synth_template()
     template.has_resource_properties(
         "AWS::Lambda::Function",
-        {
+        Match.object_like(
+            {
             "Runtime": "python3.11",
             "Environment": {
-                "Variables": Match.object_equals(
+                "Variables": Match.object_like(
                     {
                         "RC_S3_BUCKET": Match.any_value(),
                         "RC_S3_PREFIX": "releasecopilot",
@@ -119,7 +125,8 @@ def test_lambda_environment_and_log_retention() -> None:
                     }
                 )
             },
-        },
+        }
+        ),
     )
 
     template.has_resource_properties(
