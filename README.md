@@ -201,6 +201,16 @@ Infrastructure for the audit workflow is defined in `infra/cdk`. Each AWS enviro
    - Add `--no-schedule` to disable the optional EventBridge rule regardless of the environment config.
 4. The script bootstraps the account if needed (`cdk bootstrap`) and then executes `cdk deploy --require-approval never` with the environment context derived from the configuration file.
 
+### Synth prerequisites
+
+`infra/cdk/app.py` automatically works out the deployment account and region, but `cdk synth` still needs one of the following to succeed:
+
+1. **CDK context:** supply `account`/`region` in `infra/cdk/cdk.json`, an `infra/envs/<env>.json` file, or via CLI flags, e.g. `cdk synth -c account=123456789012 -c region=us-west-2`.
+2. **AWS credentials:** run `aws configure`, `aws sso login`, or export environment variables so that `boto3` can call `sts:GetCallerIdentity`. The resolved identity is used for the CDK environment automatically.
+3. **Explicit environment variables:** export `CDK_DEFAULT_ACCOUNT` (and optionally `CDK_DEFAULT_REGION`) before invoking `cdk synth`.
+
+Any of the above options keeps local developer workflows working while ensuring CI has enough information to synthesise the stacks.
+
 Production buckets are retained by default; set `"retainBucket": false` in non-production configs to allow destruction on stack deletion.
 
 ## Secrets Management
