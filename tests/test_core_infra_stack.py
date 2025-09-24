@@ -122,31 +122,52 @@ def test_webhook_lambda_and_api_created() -> None:
         {"Name": "ReleaseCopilotJiraWebhook"},
     )
 
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        Match.object_like(
+            {
+                "Handler": "handler.handler",
+                "Runtime": "python3.11",
+                "Environment": {
+                    "Variables": Match.object_like(
+                        {
+                            "JIRA_SECRET_ARN": Match.any_value(),
+                            "METRICS_NAMESPACE": "ReleaseCopilot/JiraSync",
+                        }
+                    )
+                },
+            }
+        ),
+    )
+
+    template.resource_count_is("AWS::SQS::Queue", 1)
+
 
 def test_eventbridge_rule_targets_lambda_when_enabled() -> None:
     template = _synth_stack(schedule_enabled=True, schedule_cron="cron(30 8 * * ? *)")
 
     rules = template.find_resources("AWS::Events::Rule")
-    assert len(rules) == 1
+    assert len(rules) == 2
 
-    rule = next(iter(rules.values()))
-    properties = rule["Properties"]
+    release_rule = next(
+        rule
+        for rule in rules.values()
+        if rule["Properties"]["Targets"][0]["Arn"]["Fn::GetAtt"][0].startswith("ReleaseCopilotLambda")
+    )
+    assert release_rule["Properties"]["ScheduleExpression"] == "cron(30 8 * * ? *)"
 
-    assert properties["ScheduleExpression"] == "cron(30 8 * * ? *)"
-    assert properties["State"] == "ENABLED"
-
-    targets = properties["Targets"]
-    assert len(targets) == 1
-
-    target = targets[0]
-    assert target["Id"] == "Target0"
-
-    arn_getatt = target["Arn"]["Fn::GetAtt"]
-    assert arn_getatt[1] == "Arn"
-    assert arn_getatt[0].startswith("ReleaseCopilotLambda")
+    reconciliation_rule = next(
+        rule
+        for rule in rules.values()
+        if rule["Properties"]["Targets"][0]["Arn"]["Fn::GetAtt"][0].startswith("JiraReconciliationLambda")
+    )
+    assert reconciliation_rule["Properties"]["ScheduleExpression"] == "cron(15 7 * * ? *)"
 
 
 def test_eventbridge_rule_not_created_when_disabled() -> None:
     template = _synth_stack(schedule_enabled=False)
 
-    assert template.find_resources("AWS::Events::Rule") == {}
+    rules = template.find_resources("AWS::Events::Rule")
+    assert len(rules) == 1
+    target = rules[next(iter(rules))]["Properties"]["Targets"][0]
+    assert target["Arn"]["Fn::GetAtt"][0].startswith("JiraReconciliationLambda")

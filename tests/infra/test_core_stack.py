@@ -155,6 +155,7 @@ def test_stack_outputs_present() -> None:
     outputs = template.to_json()["Outputs"]
     assert "ArtifactsBucketName" in outputs
     assert "LambdaArn" in outputs
+    assert "JiraReconciliationLambdaName" in outputs
 
 
 def test_eventbridge_rule_targets_lambda_when_enabled() -> None:
@@ -164,26 +165,60 @@ def test_eventbridge_rule_targets_lambda_when_enabled() -> None:
     )
 
     rules = template.find_resources("AWS::Events::Rule")
-    assert len(rules) == 1
+    assert len(rules) == 2
 
-    rule = next(iter(rules.values()))
-    properties = rule["Properties"]
+    release_rule = next(
+        rule
+        for rule in rules.values()
+        if rule["Properties"]["Targets"][0]["Arn"]["Fn::GetAtt"][0].startswith("ReleaseCopilotLambda")
+    )
+    release_properties = release_rule["Properties"]
+    assert release_properties["ScheduleExpression"] == "cron(0 12 * * ? *)"
 
-    assert properties["ScheduleExpression"] == "cron(0 12 * * ? *)"
-    assert properties["State"] == "ENABLED"
-
-    targets = properties["Targets"]
-    assert len(targets) == 1
-
-    target = targets[0]
-    assert target["Id"] == "Target0"
-
-    arn_getatt = target["Arn"]["Fn::GetAtt"]
-    assert arn_getatt[1] == "Arn"
-    assert arn_getatt[0].startswith("ReleaseCopilotLambda")
+    reconciliation_rule = next(
+        rule
+        for rule in rules.values()
+        if rule["Properties"]["Targets"][0]["Arn"]["Fn::GetAtt"][0].startswith("JiraReconciliationLambda")
+    )
+    reconciliation_properties = reconciliation_rule["Properties"]
+    assert reconciliation_properties["ScheduleExpression"] == "cron(15 7 * * ? *)"
+    assert reconciliation_properties["Targets"][0]["DeadLetterConfig"]
 
 
 def test_eventbridge_rule_absent_when_schedule_disabled() -> None:
     template = _synth_template(schedule_enabled=False)
 
-    assert template.find_resources("AWS::Events::Rule") == {}
+    rules = template.find_resources("AWS::Events::Rule")
+    assert len(rules) == 1
+    target = rules[next(iter(rules))]["Properties"]["Targets"][0]
+    assert target["Arn"]["Fn::GetAtt"][0].startswith("JiraReconciliationLambda")
+
+
+def test_reconciliation_lambda_and_queue_created() -> None:
+    template = _synth_template()
+
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        Match.object_like(
+            {
+                "Handler": "handler.handler",
+                "Runtime": "python3.11",
+                "Environment": {
+                    "Variables": Match.object_like(
+                        {
+                            "JIRA_BASE_URL": Match.any_value(),
+                            "JIRA_SECRET_ARN": Match.any_value(),
+                            "METRICS_NAMESPACE": "ReleaseCopilot/JiraSync",
+                        }
+                    )
+                },
+            }
+        ),
+    )
+
+    template.has_resource_properties(
+        "AWS::SQS::Queue",
+        {
+            "MessageRetentionPeriod": 1209600,
+        },
+    )

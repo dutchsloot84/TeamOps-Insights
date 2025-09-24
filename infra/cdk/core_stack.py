@@ -20,6 +20,7 @@ from aws_cdk import (
     aws_logs as logs,
     aws_s3 as s3,
     aws_secretsmanager as secretsmanager,
+    aws_sqs as sqs,
     aws_sns as sns,
     aws_sns_subscriptions as subs,
 )
@@ -46,6 +47,12 @@ class CoreStack(Stack):
         schedule_enabled: bool = False,
         schedule_cron: str | None = None,
         jira_webhook_secret_arn: Optional[str] = None,
+        reconciliation_schedule_expression: str | None = None,
+        enable_reconciliation_schedule: bool = True,
+        reconciliation_fix_versions: Optional[str] = None,
+        reconciliation_jql_template: Optional[str] = None,
+        jira_base_url: Optional[str] = None,
+        metrics_namespace: Optional[str] = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -192,6 +199,45 @@ class CoreStack(Stack):
         if webhook_secret:
             webhook_secret.grant_read(self.webhook_lambda)
 
+        reconciliation_environment = {
+            "TABLE_NAME": self.jira_table.table_name,
+            "JIRA_BASE_URL": (jira_base_url or "https://your-domain.atlassian.net"),
+            "RC_DDB_MAX_ATTEMPTS": "5",
+            "RC_DDB_BASE_DELAY": "0.5",
+            "METRICS_NAMESPACE": metrics_namespace or "ReleaseCopilot/JiraSync",
+            "JIRA_SECRET_ARN": self.jira_secret.secret_arn,
+        }
+        if reconciliation_fix_versions:
+            reconciliation_environment["FIX_VERSIONS"] = reconciliation_fix_versions
+        if reconciliation_jql_template:
+            reconciliation_environment["JQL_TEMPLATE"] = reconciliation_jql_template
+
+        self.reconciliation_dlq = sqs.Queue(
+            self,
+            "JiraReconciliationDLQ",
+            retention_period=Duration.days(14),
+            encryption=sqs.QueueEncryption.KMS_MANAGED,
+        )
+
+        self.reconciliation_lambda = _lambda.Function(
+            self,
+            "JiraReconciliationLambda",
+            runtime=_lambda.Runtime.PYTHON_3_11,
+            handler="handler.handler",
+            code=_lambda.Code.from_asset("services/jira_reconciliation_job"),
+            timeout=Duration.seconds(300),
+            memory_size=512,
+            environment=reconciliation_environment,
+            log_retention=logs.RetentionDays.ONE_MONTH,
+            dead_letter_queue=self.reconciliation_dlq,
+            dead_letter_queue_enabled=True,
+            max_event_age=Duration.hours(6),
+            retry_attempts=2,
+        )
+
+        self.jira_table.grant_read_write_data(self.reconciliation_lambda)
+        self.jira_secret.grant_read(self.reconciliation_lambda)
+
         self.webhook_api = apigateway.RestApi(
             self,
             "JiraWebhookApi",
@@ -211,11 +257,17 @@ class CoreStack(Stack):
         self._add_lambda_alarms()
         self._add_schedule(schedule_enabled=schedule_enabled, schedule_cron=schedule_cron)
 
+        self._add_reconciliation_schedule(
+            enable_schedule=enable_reconciliation_schedule,
+            schedule_expression=reconciliation_schedule_expression,
+        )
+
         CfnOutput(self, "ArtifactsBucketName", value=self.bucket.bucket_name)
         CfnOutput(self, "LambdaName", value=self.lambda_function.function_name)
         CfnOutput(self, "LambdaArn", value=self.lambda_function.function_arn)
         CfnOutput(self, "JiraTableName", value=self.jira_table.table_name)
         CfnOutput(self, "JiraWebhookUrl", value=self.webhook_api.url)
+        CfnOutput(self, "JiraReconciliationLambdaName", value=self.reconciliation_lambda.function_name)
 
     def _attach_policies(self) -> None:
         prefix_objects_arn = self.bucket.arn_for_objects(f"{self.RC_S3_PREFIX}/*")
@@ -336,3 +388,27 @@ class CoreStack(Stack):
             schedule=events.Schedule.expression(expression),
         )
         rule.add_target(targets.LambdaFunction(self.lambda_function))
+
+    def _add_reconciliation_schedule(
+        self,
+        *,
+        enable_schedule: bool,
+        schedule_expression: str | None,
+    ) -> None:
+        if not enable_schedule:
+            return
+
+        expression = schedule_expression or "cron(15 7 * * ? *)"
+        rule = events.Rule(
+            self,
+            "JiraReconciliationSchedule",
+            schedule=events.Schedule.expression(expression),
+        )
+        rule.add_target(
+            targets.LambdaFunction(
+                self.reconciliation_lambda,
+                retry_attempts=2,
+                max_event_age=Duration.hours(2),
+                dead_letter_queue=self.reconciliation_dlq,
+            )
+        )

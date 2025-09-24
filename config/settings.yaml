@@ -11,6 +11,10 @@ jira:
   base_url: https://your-domain.atlassian.net
   cloud_id: your-cloud-id
   issue_table_name: releasecopilot-ai-jira-issues
+  reconciliation:
+    cron: cron(15 7 * * ? *)
+    jql_template: "fixVersion = '{fix_version}' ORDER BY key"
+    fix_versions: ""
 bitbucket:
   workspace: your-workspace
   default_branches:
