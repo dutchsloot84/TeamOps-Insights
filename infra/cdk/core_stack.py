@@ -8,11 +8,15 @@ from aws_cdk import (
     CfnOutput,
     Duration,
     Stack,
+    aws_cloudwatch as cw,
+    aws_cloudwatch_actions as actions,
     aws_iam as iam,
     aws_lambda as _lambda,
     aws_logs as logs,
     aws_s3 as s3,
     aws_secretsmanager as secretsmanager,
+    aws_sns as sns,
+    aws_sns_subscriptions as subs,
 )
 from constructs import Construct
 
@@ -116,6 +120,8 @@ class CoreStack(Stack):
             log_retention=logs.RetentionDays.ONE_MONTH,
         )
 
+        self._add_lambda_alarms()
+
         # EventBridge schedule integration can be added in the future if required.
         CfnOutput(self, "ArtifactsBucketName", value=self.bucket.bucket_name)
         CfnOutput(self, "LambdaName", value=self.lambda_function.function_name)
@@ -186,3 +192,40 @@ class CoreStack(Stack):
                 exclude_punctuation=True,
             ),
         )
+
+    def _add_lambda_alarms(self) -> None:
+        alarm_email = self.node.try_get_context("alarmEmail") or ""
+
+        errors_metric = self.lambda_function.metric_errors(
+            period=Duration.minutes(5), statistic="sum"
+        )
+        throttles_metric = self.lambda_function.metric_throttles(
+            period=Duration.minutes(5), statistic="sum"
+        )
+
+        errors_alarm = cw.Alarm(
+            self,
+            "LambdaErrorsAlarm",
+            metric=errors_metric,
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
+        )
+
+        throttles_alarm = cw.Alarm(
+            self,
+            "LambdaThrottlesAlarm",
+            metric=throttles_metric,
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
+        )
+
+        if alarm_email:
+            topic = sns.Topic(self, "ReleaseCopilotAlarmTopic")
+            topic.add_subscription(subs.EmailSubscription(alarm_email))
+            action = actions.SnsAction(topic)
+            errors_alarm.add_alarm_action(action)
+            throttles_alarm.add_alarm_action(action)

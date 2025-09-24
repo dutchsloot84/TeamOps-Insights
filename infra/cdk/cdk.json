@@ -9,6 +9,7 @@
     "jiraSecretArn": "",
     "bitbucketSecretArn": "",
     "scheduleEnabled": false,
-    "scheduleCron": "cron(30 1 * * ? *)"
+    "scheduleCron": "cron(30 1 * * ? *)",
+    "alarmEmail": ""
   }
 }
