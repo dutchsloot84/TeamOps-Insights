@@ -3,7 +3,7 @@
 ## Workflow overview
 - **Workflow file**: `.github/workflows/ci.yml`
 - **Triggers**:
-  - Pushes to `main` and `feature/**`
+  - Pushes to `main`, `feature/**`, and `codex/**`
   - Pull requests targeting `main`
   - Tags that match `v*.*.*`
   - Manual `workflow_dispatch` with inputs `run_uploader` (boolean) and `fix_version` (string)
