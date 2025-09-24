@@ -12,16 +12,41 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install CDK CLI
         run: npm install -g aws-cdk@2
       - name: Install dependencies
-        run: pip install -r cdk/requirements.txt
+        run: pip install -r infra/cdk/requirements.txt
+      - name: Prepare CDK environment
+        id: cdk_env
+        run: |
+          ACCOUNT_ID="${{ secrets.CDK_DEFAULT_ACCOUNT }}"
+          REGION="${{ secrets.CDK_DEFAULT_REGION }}"
+          if [ -z "$REGION" ]; then
+            REGION="us-west-2"
+          fi
+          if [ -z "$ACCOUNT_ID" ]; then
+            ACCOUNT_ID="000000000000"
+          fi
+          echo "CDK_DEFAULT_ACCOUNT=$ACCOUNT_ID" >> "$GITHUB_ENV"
+          echo "CDK_DEFAULT_REGION=$REGION" >> "$GITHUB_ENV"
+          echo "AWS_REGION=$REGION" >> "$GITHUB_ENV"
+          echo "region=$REGION" >> "$GITHUB_OUTPUT"
+          echo "account=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+      - name: Configure AWS credentials
+        if: ${{ secrets.AWS_OIDC_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ steps.cdk_env.outputs.region }}
       - name: CDK synth
-        working-directory: cdk
+        working-directory: infra/cdk
         run: cdk synth
       - name: CDK diff
-        working-directory: cdk
+        working-directory: infra/cdk
         run: cdk diff || true
