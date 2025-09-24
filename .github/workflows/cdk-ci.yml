@@ -10,6 +10,9 @@ on:
 jobs:
   synth-diff:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,8 +23,10 @@ jobs:
           python-version: '3.12'
       - name: Install CDK CLI
         run: npm install -g aws-cdk@2
-      - name: Install dependencies
-        run: pip install -r infra/cdk/requirements.txt
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -r infra/cdk/requirements.txt
       - name: Prepare CDK environment
         id: cdk_env
         run: |
@@ -44,6 +49,13 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ steps.cdk_env.outputs.region }}
+      - name: Skip AWS credentials configuration when secret is missing
+        if: ${{ secrets.AWS_OIDC_ROLE_ARN == '' }}
+        run: echo "AWS_OIDC_ROLE_ARN secret is not set; skipping credential configuration."
+      - name: Ruff lint
+        run: ruff check .
+      - name: Pytest
+        run: pytest
       - name: CDK synth
         working-directory: infra/cdk
         run: cdk synth
