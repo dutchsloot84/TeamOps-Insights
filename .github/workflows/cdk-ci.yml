@@ -1,52 +1,64 @@
-name: cdk-ci
+name: CDK CI
 
 on:
-  pull_request:
   push:
-    branches: [ main ]
-    paths-ignore:
-      - 'docs/**'
+    branches: [ "main", "feature/**" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
-  synth-diff:
+  cdk-ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write   # required for OIDC
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          node-version: '20'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install CDK CLI
-        run: npm install -g aws-cdk@2
-      - name: Install dependencies
-        run: pip install -r infra/cdk/requirements.txt
-      - name: Prepare CDK environment
-        id: cdk_env
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install deps
         run: |
-          ACCOUNT_ID="${{ secrets.CDK_DEFAULT_ACCOUNT }}"
-          REGION="${{ secrets.CDK_DEFAULT_REGION }}"
-          if [ -z "$REGION" ]; then
-            REGION="us-west-2"
-          fi
-          if [ -z "$ACCOUNT_ID" ]; then
-            ACCOUNT_ID="000000000000"
-          fi
-          echo "CDK_DEFAULT_ACCOUNT=$ACCOUNT_ID" >> "$GITHUB_ENV"
-          echo "CDK_DEFAULT_REGION=$REGION" >> "$GITHUB_ENV"
-          echo "AWS_REGION=$REGION" >> "$GITHUB_ENV"
-          echo "region=$REGION" >> "$GITHUB_OUTPUT"
-          echo "account=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
-      - name: Configure AWS credentials
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f infra/cdk/requirements.txt ]; then pip install -r infra/cdk/requirements.txt; fi
+          pip install pytest ruff
+
+      - name: Lint
+        run: ruff check . || true
+
+      - name: Unit tests
+        run: pytest -q
+
+      - name: Install CDK
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm i -g aws-cdk@2
+
+      - name: CDK synth
+        run: |
+          cd infra/cdk
+          cdk synth
+
+      # Only run OIDC if secret exists — NOTE the ${{ ... }} wrapper and no commas
+      - name: Configure AWS creds (OIDC)
         if: ${{ secrets.AWS_OIDC_ROLE_ARN != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          aws-region: ${{ steps.cdk_env.outputs.region }}
-      - name: CDK synth
-        working-directory: infra/cdk
-        run: cdk synth
-      - name: CDK diff
-        working-directory: infra/cdk
-        run: cdk diff || true
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Complementary branch when secret is missing (keeps the job alive)
+      - name: Note when no AWS role is set
+        if: ${{ secrets.AWS_OIDC_ROLE_ARN == '' }}
+        run: echo "No AWS_OIDC_ROLE_ARN secret set; continuing without AWS auth."
