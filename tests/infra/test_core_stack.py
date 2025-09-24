@@ -14,8 +14,8 @@ REGION = "us-west-2"
 ASSET_DIR = str(Path(__file__).resolve().parents[2] / "dist")
 
 
-def _synth_template(**overrides) -> Template:
-    app = App()
+def _synth_template(*, app_context: dict[str, str] | None = None, **overrides) -> Template:
+    app = App(context=app_context or {})
     stack = CoreStack(
         app,
         "TestCoreStack",
@@ -125,6 +125,21 @@ def test_lambda_environment_and_log_retention() -> None:
     template.has_resource_properties(
         "Custom::LogRetention",
         {"RetentionInDays": 30},
+    )
+
+
+def test_lambda_alarms_created() -> None:
+    template = _synth_template()
+    template.resource_count_is("AWS::CloudWatch::Alarm", 2)
+
+
+def test_sns_topic_created_when_alarm_email_provided() -> None:
+    template = _synth_template(app_context={"alarmEmail": "ops@example.com"})
+    template.resource_count_is("AWS::SNS::Topic", 1)
+    template.resource_count_is("AWS::SNS::Subscription", 1)
+    template.has_resource_properties(
+        "AWS::SNS::Subscription",
+        {"Endpoint": "ops@example.com"},
     )
 
 

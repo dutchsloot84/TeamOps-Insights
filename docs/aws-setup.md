@@ -42,3 +42,19 @@ cdk deploy \
   --context jiraSecretArn=arn:aws:secretsmanager:us-west-2:ACCOUNT:secret:/releasecopilot/jira-XXXX \
   --context bitbucketSecretArn=arn:aws:secretsmanager:us-west-2:ACCOUNT:secret:/releasecopilot/bitbucket-YYYY
 ```
+
+### Quick runbook: CloudWatch alarms
+
+```bash
+cd infra/cdk
+source .venv/bin/activate  # Windows: .venv\Scripts\Activate
+cdk synth
+
+# deploy without email
+cdk deploy --require-approval never
+
+# deploy with email notifications
+cdk deploy --context alarmEmail=you@example.com --require-approval never
+
+# smoke test: cause a Lambda error, re-invoke, then check CloudWatch Alarms
+```
