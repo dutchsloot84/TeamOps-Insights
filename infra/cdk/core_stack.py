@@ -233,6 +233,11 @@ class CoreStack(Stack):
             throttles_alarm.add_alarm_action(action)
 
     def _add_schedule(self, *, schedule_enabled: bool, schedule_cron: str | None) -> None:
+        """Provision the optional EventBridge rule when scheduling is enabled.
+
+        Skipping creation when ``schedule_enabled`` is false ensures the stack
+        deletes any previously-deployed schedule during updates.
+        """
         if not schedule_enabled:
             return
 

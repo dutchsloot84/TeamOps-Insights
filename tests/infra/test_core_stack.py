@@ -150,27 +150,33 @@ def test_stack_outputs_present() -> None:
     assert "LambdaArn" in outputs
 
 
-def test_schedule_rule_created_when_enabled() -> None:
+def test_eventbridge_rule_targets_lambda_when_enabled() -> None:
     template = _synth_template(
         schedule_enabled=True,
         schedule_cron="cron(0 12 * * ? *)",
     )
-    template.has_resource_properties(
-        "AWS::Events::Rule",
-        {
-            "ScheduleExpression": "cron(0 12 * * ? *)",
-            "State": "ENABLED",
-            "Targets": [
-                Match.object_like(
-                    {
-                        "Arn": {
-                            "Fn::GetAtt": [
-                                Match.string_like_regexp("ReleaseCopilotLambda.*"),
-                                "Arn",
-                            ],
-                        }
-                    }
-                )
-            ],
-        },
-    )
+
+    rules = template.find_resources("AWS::Events::Rule")
+    assert len(rules) == 1
+
+    rule = next(iter(rules.values()))
+    properties = rule["Properties"]
+
+    assert properties["ScheduleExpression"] == "cron(0 12 * * ? *)"
+    assert properties["State"] == "ENABLED"
+
+    targets = properties["Targets"]
+    assert len(targets) == 1
+
+    target = targets[0]
+    assert target["Id"] == "Target0"
+
+    arn_getatt = target["Arn"]["Fn::GetAtt"]
+    assert arn_getatt[1] == "Arn"
+    assert arn_getatt[0].startswith("ReleaseCopilotLambda")
+
+
+def test_eventbridge_rule_absent_when_schedule_disabled() -> None:
+    template = _synth_template(schedule_enabled=False)
+
+    assert template.find_resources("AWS::Events::Rule") == {}
