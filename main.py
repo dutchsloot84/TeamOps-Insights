@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +26,8 @@ from exporters.excel_exporter import ExcelExporter
 from exporters.json_exporter import JSONExporter
 from processors.audit_processor import AuditProcessor
 from releasecopilot import uploader
+from releasecopilot.errors import ReleaseCopilotError
+from releasecopilot.logging_config import configure_logging, get_logger
 
 
 def _load_local_dotenv() -> None:
@@ -63,35 +65,7 @@ class AuditConfig:
     output_prefix: str = "audit_results"
 
 
-def setup_logging() -> None:
-    level = os.getenv("LOG_LEVEL", "INFO").upper()
-    handler = logging.StreamHandler()
-    handler.setFormatter(JsonFormatter())
-    root = logging.getLogger()
-    root.setLevel(level)
-    root.handlers = [handler]
-
-
-class JsonFormatter(logging.Formatter):
-    """Formats logs as JSON for CloudWatch-friendly output."""
-
-    def format(self, record: logging.LogRecord) -> str:  # noqa: D401
-        payload = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        for key, value in record.__dict__.items():
-            if key in {"args", "msg", "levelname", "levelno", "pathname", "filename", "module", "exc_info", "exc_text", "stack_info", "lineno", "funcName", "created", "msecs", "relativeCreated", "thread", "threadName", "processName", "process", "message"}:
-                continue
-            payload[key] = value
-        if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
-        return json.dumps(payload)
-
-
-def parse_args(argv: Optional[Iterable[str]] = None) -> AuditConfig:
+def parse_args(argv: Optional[Iterable[str]] = None) -> tuple[argparse.Namespace, AuditConfig]:
     parser = argparse.ArgumentParser(description="Releasecopilot AI")
     parser.add_argument("--fix-version", required=True, help="Fix version to audit")
     parser.add_argument("--repos", nargs="*", default=[], help="Bitbucket repositories to inspect")
@@ -103,10 +77,11 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> AuditConfig:
     parser.add_argument("--s3-bucket", help="Override the default S3 bucket")
     parser.add_argument("--s3-prefix", help="Override the default S3 prefix")
     parser.add_argument("--output-prefix", default="audit_results", help="Basename for output files")
+    parser.add_argument("--log-level", default="INFO", help="Logging verbosity")
 
     args = parser.parse_args(argv)
 
-    return AuditConfig(
+    config = AuditConfig(
         fix_version=args.fix_version,
         repos=args.repos,
         branches=args.branches,
@@ -118,11 +93,11 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> AuditConfig:
         s3_prefix=args.s3_prefix,
         output_prefix=args.output_prefix,
     )
+    return args, config
 
 
 def run_audit(config: AuditConfig) -> Dict[str, Any]:
-    setup_logging()
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
 
     settings = load_settings()
     region = settings.get("aws", {}).get("region")
@@ -312,7 +287,7 @@ def upload_artifacts(
     raw_files: Iterable[Path],
     region: Optional[str],
 ) -> None:
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
     bucket = (
         config.s3_bucket
         or settings.get("aws", {}).get("s3_bucket")
@@ -403,5 +378,12 @@ def _detect_git_sha() -> Optional[str]:
 
 
 if __name__ == "__main__":
-    config = parse_args()
-    run_audit(config)
+    args, config = parse_args()
+    configure_logging(args.log_level)
+    try:
+        run_audit(config)
+    except ReleaseCopilotError as exc:
+        logger = get_logger(__name__)
+        logger.error("Audit execution failed", extra=getattr(exc, "context", {}))
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)

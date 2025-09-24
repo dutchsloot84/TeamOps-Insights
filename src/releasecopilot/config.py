@@ -160,7 +160,7 @@ def resolve_secret(name: str, cfg: Dict[str, Any]) -> str | None:
 def _extract_cli_overrides(cli_args: argparse.Namespace) -> Dict[str, Any]:
     data: Dict[str, Any] = {}
     for key, value in vars(cli_args).items():
-        if key == "config":
+        if key in {"config", "log_level"}:
             continue
         if value is None:
             continue

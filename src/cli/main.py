@@ -34,6 +34,11 @@ try:  # pragma: no cover - optional dependency loading
 except Exception:  # pragma: no cover
     pass
 
+from releasecopilot.errors import ReleaseCopilotError  # noqa: E402
+from releasecopilot.logging_config import configure_logging, get_logger  # noqa: E402
+
+logger = get_logger(__name__)
+
 def _copy_artifacts(artifacts: dict[str, str], destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     for _, src in artifacts.items():
@@ -60,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", help="Optional directory to copy generated artifacts into")
     parser.add_argument("--format", choices=["json", "excel", "both"], default="both", help="Artifact copy format")
     parser.add_argument("--dry-run", action="store_true", help="Skip remote calls and only echo configuration")
+    parser.add_argument("--log-level", default="INFO", help="Logging verbosity")
     return parser
 
 
@@ -83,12 +89,27 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> tuple[argparse.Namespace
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args, config = parse_args(argv)
+    configure_logging(args.log_level)
+    logger.info(
+        "Starting ReleaseCopilot run",
+        extra={
+            "fix_version": config.fix_version,
+            "repos": config.repos,
+            "branches": config.branches,
+        },
+    )
 
     if args.dry_run:
+        logger.info("Dry run requested")
         print(json.dumps({"config": config.__dict__}, indent=2))
         return 0
 
-    result = run_audit(config)
+    try:
+        result = run_audit(config)
+    except ReleaseCopilotError as exc:
+        logger.error("ReleaseCopilot run failed", extra=getattr(exc, "context", {}))
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
     artifacts = result.get("artifacts", {})
 
     destination: Optional[Path] = Path(args.output) if args.output else None
@@ -108,6 +129,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         summary_path = destination / "summary.json"
         summary_path.write_text(json.dumps(result.get("summary", {}), indent=2), encoding="utf-8")
 
+    logger.info("ReleaseCopilot run completed", extra={"artifacts": list(artifacts.keys())})
     print(json.dumps(result.get("summary", {}), indent=2))
     return 0
 

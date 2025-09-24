@@ -1,7 +1,6 @@
 """Jira API client for fetching issues linked to a fix version."""
 from __future__ import annotations
 
-import logging
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -9,9 +8,12 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from releasecopilot.errors import JiraQueryError, JiraTokenRefreshError
+from releasecopilot.logging_config import get_logger
+
 from .base import BaseAPIClient
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 TOKEN_REFRESH_ENDPOINT = "https://auth.atlassian.com/oauth/token"
 
@@ -57,8 +59,24 @@ class JiraClient(BaseAPIClient):
             "client_secret": self.client_secret,
             "refresh_token": self.refresh_token,
         }
-        response = requests.post(TOKEN_REFRESH_ENDPOINT, json=payload, timeout=30)
-        response.raise_for_status()
+        try:
+            response = self._request_with_retry(
+                session=self.session,
+                method="POST",
+                url=TOKEN_REFRESH_ENDPOINT,
+                logger_context={"service": "jira", "operation": "refresh_token"},
+                json=payload,
+                timeout=30,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:  # pragma: no cover - defensive
+            context = {
+                "service": "jira",
+                "operation": "refresh_token",
+                "status_code": getattr(getattr(exc, "response", None), "status_code", None),
+            }
+            logger.error("Failed to refresh Jira OAuth token", extra=context)
+            raise JiraTokenRefreshError("Failed to refresh Jira OAuth token", context=context) from exc
         token_data = response.json()
         self.access_token = token_data.get("access_token")
         expires_in = token_data.get("expires_in", 0)
@@ -107,8 +125,37 @@ class JiraClient(BaseAPIClient):
             params["startAt"] = start_at
             url = f"{self.base_url}/rest/api/3/search"
             headers = self._get_headers()
-            response = self.session.get(url, headers=headers, params=params, timeout=30)
-            response.raise_for_status()
+            try:
+                response = self._request_with_retry(
+                    session=self.session,
+                    method="GET",
+                    url=url,
+                    logger_context={
+                        "service": "jira",
+                        "operation": "search",
+                        "jql": jql,
+                        "start_at": start_at,
+                    },
+                    headers=headers,
+                    params=params,
+                    timeout=30,
+                )
+                response.raise_for_status()
+            except requests.RequestException as exc:
+                status_code = getattr(getattr(exc, "response", None), "status_code", None)
+                snippet = None
+                if getattr(exc, "response", None) is not None:
+                    snippet = exc.response.text[:200]
+                context = {
+                    "service": "jira",
+                    "operation": "search",
+                    "jql": jql,
+                    "status_code": status_code,
+                    "start_at": start_at,
+                    "snippet": snippet,
+                }
+                logger.error("Jira search failed", extra=context)
+                raise JiraQueryError("Failed to fetch Jira issues", context=context) from exc
             payload = response.json()
 
             batch = payload.get("issues", [])
