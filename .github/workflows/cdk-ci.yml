@@ -50,15 +50,26 @@ jobs:
           cd infra/cdk
           cdk synth
 
-      # Only run OIDC if secret exists — NOTE the ${{ ... }} wrapper and no commas
+      # ---------- NEW: derive flags from secrets into env, but don't use secrets in `if:` ----------
+      - name: Compute OIDC availability flags
+        env:
+          ROLE: ${{ secrets.AWS_OIDC_ROLE_ARN }}   # may be empty / unavailable on forks
+        run: |
+          if [ -n "$ROLE" ]; then
+            echo "AWS_OIDC_ROLE_ARN=$ROLE" >> "$GITHUB_ENV"
+            echo "OIDC_PRESENT=true" >> "$GITHUB_ENV"
+          else
+            echo "OIDC_PRESENT=false" >> "$GITHUB_ENV"
+          fi
+
+      # Use only env-based conditions from here on
       - name: Configure AWS creds (OIDC)
-        if: ${{ secrets.AWS_OIDC_ROLE_ARN != '' }}
+        if: ${{ env.OIDC_PRESENT == 'true' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Complementary branch when secret is missing (keeps the job alive)
       - name: Note when no AWS role is set
-        if: ${{ secrets.AWS_OIDC_ROLE_ARN == '' }}
-        run: echo "No AWS_OIDC_ROLE_ARN secret set; continuing without AWS auth."
+        if: ${{ env.OIDC_PRESENT != 'true' }}
+        run: echo "No AWS_OIDC_ROLE_ARN secret set or unavailable on this event; continuing without AWS auth."
