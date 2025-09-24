@@ -5,6 +5,8 @@ import argparse
 from pathlib import Path
 from typing import Iterable, Optional
 
+from releasecopilot.logging_config import configure_logging, get_logger
+
 try:  # pragma: no cover - optional dependency
     from dotenv import load_dotenv
 except ImportError:  # pragma: no cover - optional dependency
@@ -72,6 +74,11 @@ def _create_parser() -> argparse.ArgumentParser:
         action="store_false",
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+    )
     return parser
 
 
@@ -86,6 +93,9 @@ def run(argv: Optional[Iterable[str]] = None) -> dict:
     """Parse arguments and build the resulting configuration dictionary."""
 
     args = parse_args(argv)
+    configure_logging(args.log_level)
+    logger = get_logger(__name__)
+    logger.debug("CLI arguments parsed", extra={"args": {k: v for k, v in vars(args).items() if v is not None}})
     return build_config(args)
 
 
