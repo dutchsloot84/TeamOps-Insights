@@ -9,6 +9,13 @@ import sys
 from pathlib import Path
 from typing import Iterable, Optional
 
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+SRC_PATH = ROOT / "src"
+if str(SRC_PATH) not in sys.path:
+    sys.path.insert(1, str(SRC_PATH))
+
 try:  # pragma: no cover - optional dependency loading
     from dotenv import load_dotenv
 
@@ -39,7 +46,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--freeze-date", help="ISO freeze date override")
     parser.add_argument("--window-days", type=int, default=28, help="Lookback window in days")
     parser.add_argument("--use-cache", action="store_true", help="Reuse cached payloads")
-    parser.add_argument("--upload-s3", action="store_true", help="Upload results to S3")
     parser.add_argument("--s3-bucket", help="Override destination S3 bucket")
     parser.add_argument("--s3-prefix", help="Override destination S3 prefix")
     parser.add_argument("--output-prefix", default="audit_results", help="Basename for generated files")
@@ -59,7 +65,6 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> tuple[argparse.Namespace
         window_days=args.window_days,
         freeze_date=args.freeze_date,
         develop_only=args.develop_only,
-        upload_s3=args.upload_s3,
         use_cache=args.use_cache,
         s3_bucket=args.s3_bucket or os.getenv("ARTIFACTS_BUCKET"),
         s3_prefix=args.s3_prefix,

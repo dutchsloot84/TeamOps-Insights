@@ -1,0 +1,10 @@
+[
+  {
+    "id": "abc123",
+    "linkedStoryKeys": ["STORY-1"]
+  },
+  {
+    "id": "def456",
+    "linkedStoryKeys": []
+  }
+]

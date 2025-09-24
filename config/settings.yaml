@@ -3,7 +3,7 @@
 aws:
   region: us-east-1
   s3_bucket: releasecopilot-ai-artifacts
-  s3_prefix: releasecopilot/
+  s3_prefix: releasecopilot
   secrets:
     jira: releasecopilot-ai/jira
     bitbucket: releasecopilot-ai/bitbucket
