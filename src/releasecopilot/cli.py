@@ -11,6 +11,9 @@ except ImportError:  # pragma: no cover - optional dependency
     load_dotenv = None
 
 
+from .config import build_config
+
+
 def _load_local_dotenv() -> None:
     """Best-effort loading of a project-level ``.env`` file."""
 
@@ -30,8 +33,6 @@ def _load_local_dotenv() -> None:
 
 
 _load_local_dotenv()
-
-from .config import build_config
 
 
 def _create_parser() -> argparse.ArgumentParser:
