@@ -10,6 +10,8 @@ from aws_cdk import (
     Stack,
     aws_cloudwatch as cw,
     aws_cloudwatch_actions as actions,
+    aws_events as events,
+    aws_events_targets as targets,
     aws_iam as iam,
     aws_lambda as _lambda,
     aws_logs as logs,
@@ -121,8 +123,8 @@ class CoreStack(Stack):
         )
 
         self._add_lambda_alarms()
+        self._add_schedule(schedule_enabled=schedule_enabled, schedule_cron=schedule_cron)
 
-        # EventBridge schedule integration can be added in the future if required.
         CfnOutput(self, "ArtifactsBucketName", value=self.bucket.bucket_name)
         CfnOutput(self, "LambdaName", value=self.lambda_function.function_name)
         CfnOutput(self, "LambdaArn", value=self.lambda_function.function_arn)
@@ -229,3 +231,15 @@ class CoreStack(Stack):
             action = actions.SnsAction(topic)
             errors_alarm.add_alarm_action(action)
             throttles_alarm.add_alarm_action(action)
+
+    def _add_schedule(self, *, schedule_enabled: bool, schedule_cron: str | None) -> None:
+        if not schedule_enabled:
+            return
+
+        expression = schedule_cron or "cron(30 1 * * ? *)"
+        rule = events.Rule(
+            self,
+            "ReleaseCopilotSchedule",
+            schedule=events.Schedule.expression(expression),
+        )
+        rule.add_target(targets.LambdaFunction(self.lambda_function))

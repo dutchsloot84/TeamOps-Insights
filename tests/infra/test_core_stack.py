@@ -148,3 +148,29 @@ def test_stack_outputs_present() -> None:
     outputs = template.to_json()["Outputs"]
     assert "ArtifactsBucketName" in outputs
     assert "LambdaArn" in outputs
+
+
+def test_schedule_rule_created_when_enabled() -> None:
+    template = _synth_template(
+        schedule_enabled=True,
+        schedule_cron="cron(0 12 * * ? *)",
+    )
+    template.has_resource_properties(
+        "AWS::Events::Rule",
+        {
+            "ScheduleExpression": "cron(0 12 * * ? *)",
+            "State": "ENABLED",
+            "Targets": [
+                Match.object_like(
+                    {
+                        "Arn": {
+                            "Fn::GetAtt": [
+                                Match.string_like_regexp("ReleaseCopilotLambda.*"),
+                                "Arn",
+                            ],
+                        }
+                    }
+                )
+            ],
+        },
+    )

@@ -11,7 +11,7 @@ The new CDK `CoreStack` codifies those resources with least-privilege defaults:
 - **S3 artifacts bucket** &mdash; server-side encrypted with AWS-managed keys, versioned, and non-public. Lifecycle management moves `raw/` objects to Standard-IA after 30 days and deletes them after 90 days, while `reports/` objects move to Standard-IA after 60 days and are retained indefinitely.
 - **Secrets** &mdash; existing Jira and Bitbucket secrets can be imported by ARN; when omitted the stack creates placeholders using `SecretStringGenerator` so synthesis/deployment succeed without pre-provisioned secrets.
 - **Lambda execution role** &mdash; grants only the actions required to write logs, list the bucket within the `releasecopilot/` prefix, read/write prefixed objects, and fetch the two exact secrets. The Lambda receives environment variables (`RC_S3_BUCKET`, `RC_S3_PREFIX`, `RC_USE_AWS_SECRETS_MANAGER`) that mirror the manual configuration but are now centrally defined.
-- **Outputs** &mdash; expose the bucket name and Lambda identifiers for downstream wiring. Future enhancements (for example an EventBridge schedule driven by `scheduleEnabled`/`scheduleCron` context flags) can attach to the Lambda without altering these foundations.
+- **Outputs** &mdash; expose the bucket name and Lambda identifiers for downstream wiring. An optional EventBridge schedule driven by the `scheduleEnabled`/`scheduleCron` context flags can trigger the audit Lambda on a cadence without altering these foundations.
 
 ## Migration guidance
 
@@ -57,4 +57,25 @@ cdk deploy --require-approval never
 cdk deploy --context alarmEmail=you@example.com --require-approval never
 
 # smoke test: cause a Lambda error, re-invoke, then check CloudWatch Alarms
+```
+
+### Optional EventBridge schedule
+
+The stack can create an EventBridge rule that invokes the ReleaseCopilot Lambda on a cron schedule. The feature is disabled by default so the stack stays simple unless you explicitly opt in.
+
+```bash
+cd infra/cdk
+source .venv/bin/activate  # Windows: .venv\Scripts\Activate
+
+# enable the default 6:30 PM Phoenix schedule (cron(30 1 * * ? *))
+cdk deploy --context scheduleEnabled=true --require-approval never
+
+# customize the cadence
+cdk deploy \
+  --context scheduleEnabled=true \
+  --context scheduleCron="cron(0 14 * * ? *)" \
+  --require-approval never
+
+# disable and clean up the rule on the next deploy
+cdk deploy --context scheduleEnabled=false --require-approval never
 ```
