@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from aws_cdk import App, Environment
 from aws_cdk.assertions import Match, Template
 
@@ -25,6 +26,18 @@ def _synth_template(*, app_context: dict[str, str] | None = None, **overrides) -
         **overrides,
     )
     return Template.from_stack(stack)
+
+
+def _create_stack(*, app_context: dict[str, str] | None = None, **overrides) -> CoreStack:
+    app = App(context=app_context or {})
+    return CoreStack(
+        app,
+        "TestCoreStack",
+        env=Environment(account=ACCOUNT, region=REGION),
+        bucket_name=f"releasecopilot-artifacts-{ACCOUNT}",
+        lambda_asset_path=ASSET_DIR,
+        **overrides,
+    )
 
 
 def test_bucket_encryption_and_versioning() -> None:
@@ -109,7 +122,7 @@ def test_iam_policy_statements() -> None:
     assert logs_statement["Resource"].endswith(":log-group:/aws/lambda/*")
 
 
-def test_lambda_environment_and_log_retention() -> None:
+def test_lambda_environment_and_log_groups() -> None:
     template = _synth_template()
     template.has_resource_properties(
         "AWS::Lambda::Function",
@@ -129,10 +142,39 @@ def test_lambda_environment_and_log_retention() -> None:
         ),
     )
 
-    template.has_resource_properties(
-        "Custom::LogRetention",
-        {"RetentionInDays": 30},
-    )
+    log_groups = template.find_resources("AWS::Logs::LogGroup")
+    assert len(log_groups) >= 3
+    for log_group in log_groups.values():
+        assert log_group["Properties"].get("RetentionInDays") == 30
+
+    assert not template.find_resources("Custom::LogRetention")
+
+
+def test_lambda_asset_paths_are_stable() -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    webhook_path = project_root / "services" / "jira_sync_webhook"
+    reconciliation_path = project_root / "services" / "jira_reconciliation_job"
+
+    assert webhook_path.is_dir()
+    assert reconciliation_path.is_dir()
+
+
+def test_stack_raises_when_asset_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    webhook_path = project_root / "services" / "jira_sync_webhook"
+    reconciliation_path = project_root / "services" / "jira_reconciliation_job"
+
+    original_exists = Path.exists
+
+    def fake_exists(self: Path) -> bool:
+        if self in {webhook_path, reconciliation_path}:
+            return False
+        return original_exists(self)
+
+    monkeypatch.setattr(Path, "exists", fake_exists)
+
+    with pytest.raises(FileNotFoundError):
+        _create_stack()
 
 
 def test_lambda_alarms_created() -> None:

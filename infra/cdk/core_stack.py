@@ -58,6 +58,19 @@ class CoreStack(Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         asset_path = Path(lambda_asset_path).expanduser().resolve()
+        project_root = Path(__file__).resolve().parents[2]
+        webhook_asset_path = project_root / "services" / "jira_sync_webhook"
+        reconciliation_asset_path = project_root / "services" / "jira_reconciliation_job"
+
+        if not webhook_asset_path.exists():
+            raise FileNotFoundError(
+                f"Jira webhook Lambda asset directory is missing: {webhook_asset_path}"
+            )
+        if not reconciliation_asset_path.exists():
+            raise FileNotFoundError(
+                "Jira reconciliation Lambda asset directory is missing: "
+                f"{reconciliation_asset_path}"
+            )
 
         self.bucket = s3.Bucket(
             self,
@@ -120,6 +133,13 @@ class CoreStack(Stack):
         clamped_timeout = max(180, min(lambda_timeout_sec, 300))
         clamped_memory = max(512, min(lambda_memory_mb, 1024))
 
+        release_lambda_log_group = logs.LogGroup(
+            self,
+            "ReleaseCopilotLambdaLogGroup",
+            retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         self.lambda_function = _lambda.Function(
             self,
             "ReleaseCopilotLambda",
@@ -130,7 +150,7 @@ class CoreStack(Stack):
             memory_size=clamped_memory,
             role=self.execution_role,
             environment=environment,
-            log_retention=logs.RetentionDays.ONE_MONTH,
+            log_group=release_lambda_log_group,
         )
 
         self.jira_table = dynamodb.Table(
@@ -140,10 +160,17 @@ class CoreStack(Stack):
                 name="issue_id", type=dynamodb.AttributeType.STRING
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            point_in_time_recovery=True,
             removal_policy=RemovalPolicy.RETAIN,
             encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
+
+        cfn_table = self.jira_table.node.default_child
+        if isinstance(cfn_table, dynamodb.CfnTable):
+            cfn_table.point_in_time_recovery_specification = (
+                dynamodb.CfnTable.PointInTimeRecoverySpecificationProperty(
+                    point_in_time_recovery_enabled=True
+                )
+            )
 
         self.jira_table.add_global_secondary_index(
             index_name="FixVersionIndex",
@@ -183,16 +210,23 @@ class CoreStack(Stack):
         if webhook_secret:
             webhook_environment["WEBHOOK_SECRET_ARN"] = webhook_secret.secret_arn
 
+        webhook_log_group = logs.LogGroup(
+            self,
+            "JiraWebhookLambdaLogGroup",
+            retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         self.webhook_lambda = _lambda.Function(
             self,
             "JiraWebhookLambda",
             runtime=_lambda.Runtime.PYTHON_3_11,
             handler="handler.handler",
-            code=_lambda.Code.from_asset("services/jira_sync_webhook"),
+            code=_lambda.Code.from_asset(str(webhook_asset_path)),
             timeout=Duration.seconds(60),
             memory_size=256,
             environment=webhook_environment,
-            log_retention=logs.RetentionDays.ONE_MONTH,
+            log_group=webhook_log_group,
         )
 
         self.jira_table.grant_read_write_data(self.webhook_lambda)
@@ -219,16 +253,23 @@ class CoreStack(Stack):
             encryption=sqs.QueueEncryption.KMS_MANAGED,
         )
 
+        reconciliation_log_group = logs.LogGroup(
+            self,
+            "JiraReconciliationLambdaLogGroup",
+            retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         self.reconciliation_lambda = _lambda.Function(
             self,
             "JiraReconciliationLambda",
             runtime=_lambda.Runtime.PYTHON_3_11,
             handler="handler.handler",
-            code=_lambda.Code.from_asset("services/jira_reconciliation_job"),
+            code=_lambda.Code.from_asset(str(reconciliation_asset_path)),
             timeout=Duration.seconds(300),
             memory_size=512,
             environment=reconciliation_environment,
-            log_retention=logs.RetentionDays.ONE_MONTH,
+            log_group=reconciliation_log_group,
             dead_letter_queue=self.reconciliation_dlq,
             dead_letter_queue_enabled=True,
             max_event_age=Duration.hours(6),
