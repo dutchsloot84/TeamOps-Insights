@@ -18,6 +18,16 @@ except Exception:  # pragma: no cover - ignore missing dependency
     load_dotenv = None
 
 
+from clients.bitbucket_client import BitbucketClient
+from clients.jira_client import JiraClient, compute_fix_version_window
+from clients.secrets_manager import CredentialStore, SecretsManager
+from config.settings import load_settings
+from exporters.excel_exporter import ExcelExporter
+from exporters.json_exporter import JSONExporter
+from processors.audit_processor import AuditProcessor
+from releasecopilot import uploader
+
+
 def _load_local_dotenv() -> None:
     if load_dotenv is None:
         return
@@ -33,15 +43,6 @@ def _load_local_dotenv() -> None:
 
 
 _load_local_dotenv()
-
-from clients.bitbucket_client import BitbucketClient
-from clients.jira_client import JiraClient, compute_fix_version_window
-from clients.secrets_manager import CredentialStore, SecretsManager
-from config.settings import load_settings
-from exporters.excel_exporter import ExcelExporter
-from exporters.json_exporter import JSONExporter
-from processors.audit_processor import AuditProcessor
-from releasecopilot import uploader
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"

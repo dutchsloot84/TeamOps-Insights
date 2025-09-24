@@ -9,6 +9,17 @@ import sys
 from pathlib import Path
 from typing import Iterable, Optional
 
+try:
+    from main import AuditConfig, run_audit
+except ModuleNotFoundError:
+    fallback_root = Path(__file__).resolve().parents[2]
+    if str(fallback_root) not in sys.path:
+        sys.path.insert(0, str(fallback_root))
+    fallback_src = fallback_root / "src"
+    if str(fallback_src) not in sys.path:
+        sys.path.insert(1, str(fallback_src))
+    from main import AuditConfig, run_audit
+
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -22,9 +33,6 @@ try:  # pragma: no cover - optional dependency loading
     load_dotenv()
 except Exception:  # pragma: no cover
     pass
-
-from main import AuditConfig, run_audit
-
 
 def _copy_artifacts(artifacts: dict[str, str], destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)

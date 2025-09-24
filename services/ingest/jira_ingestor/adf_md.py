@@ -44,9 +44,12 @@ def to_markdown(adf):
                 txt = n.get("text","")
                 for m in (n.get("marks") or []):
                     mt = m.get("type")
-                    if mt == "strong": txt = f"**{txt}**"
-                    elif mt == "em": txt = f"*{txt}*"
-                    elif mt == "code": txt = f"`{txt}`"
+                    if mt == "strong":
+                        txt = f"**{txt}**"
+                    elif mt == "em":
+                        txt = f"*{txt}*"
+                    elif mt == "code":
+                        txt = f"`{txt}`"
                     elif mt == "link":
                         href = (m.get("attrs") or {}).get("href","")
                         txt = f"[{txt}]({href})"
@@ -56,15 +59,15 @@ def to_markdown(adf):
     walk(adf)
     # collapse excessive blank lines
     md = "".join(out)
-    lines = [l.rstrip() for l in md.splitlines()]
+    lines = [line.rstrip() for line in md.splitlines()]
     cleaned = []
     last_blank = False
-    for l in lines:
-        if l.strip() == "":
+    for line in lines:
+        if line.strip() == "":
             if not last_blank:
                 cleaned.append("")
             last_blank = True
         else:
-            cleaned.append(l)
+            cleaned.append(line)
             last_blank = False
     return "\n".join(cleaned).strip()
