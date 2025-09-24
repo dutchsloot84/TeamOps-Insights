@@ -76,4 +76,27 @@ def test_lambda_has_expected_configuration() -> None:
 def test_eventbridge_rule_targets_lambda_when_enabled() -> None:
     template = _synth_stack(schedule_enabled=True, schedule_cron="cron(30 8 * * ? *)")
 
+    rules = template.find_resources("AWS::Events::Rule")
+    assert len(rules) == 1
+
+    rule = next(iter(rules.values()))
+    properties = rule["Properties"]
+
+    assert properties["ScheduleExpression"] == "cron(30 8 * * ? *)"
+    assert properties["State"] == "ENABLED"
+
+    targets = properties["Targets"]
+    assert len(targets) == 1
+
+    target = targets[0]
+    assert target["Id"] == "Target0"
+
+    arn_getatt = target["Arn"]["Fn::GetAtt"]
+    assert arn_getatt[1] == "Arn"
+    assert arn_getatt[0].startswith("ReleaseCopilotLambda")
+
+
+def test_eventbridge_rule_not_created_when_disabled() -> None:
+    template = _synth_stack(schedule_enabled=False)
+
     assert template.find_resources("AWS::Events::Rule") == {}
