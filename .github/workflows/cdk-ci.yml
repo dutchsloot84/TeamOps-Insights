@@ -73,3 +73,4 @@ jobs:
       - name: Note when no AWS role is set
         if: ${{ env.OIDC_PRESENT != 'true' }}
         run: echo "No AWS_OIDC_ROLE_ARN secret set or unavailable on this event; continuing without AWS auth."
+
