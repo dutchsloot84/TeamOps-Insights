@@ -1,4 +1,8 @@
-import os, json, time, logging, datetime as dt
+import datetime as dt
+import json
+import logging
+import os
+import time
 import boto3
 from jira_api import refresh_access_token, search_page, discover_field_map, get_all_comments_if_needed
 from adf_md import to_markdown
@@ -48,12 +52,12 @@ def _normalize_issue(issue, field_ids, base_url):
 
     # Linked issues
     links = []
-    for l in f.get("issuelinks", []) or []:
-        t = (l.get("type") or {}).get("name")
-        if "outwardIssue" in l:
-            links.append({"type": t, "direction": "outward", "key": l["outwardIssue"]["key"]})
-        if "inwardIssue" in l:
-            links.append({"type": t, "direction": "inward", "key": l["inwardIssue"]["key"]})
+    for link in f.get("issuelinks", []) or []:
+        t = (link.get("type") or {}).get("name")
+        if "outwardIssue" in link:
+            links.append({"type": t, "direction": "outward", "key": link["outwardIssue"]["key"]})
+        if "inwardIssue" in link:
+            links.append({"type": t, "direction": "inward", "key": link["inwardIssue"]["key"]})
 
     # Custom fields
     ac_id = field_ids.get("acceptance_criteria")
@@ -100,8 +104,10 @@ def handler(event, context):
         "fixVersions","issuetype","status","project","reporter","assignee",
         "created","updated"
     ]
-    if ac_id: fields.append(ac_id)
-    if dn_id: fields.append(dn_id)
+    if ac_id:
+        fields.append(ac_id)
+    if dn_id:
+        fields.append(dn_id)
     fields_csv = ",".join(fields)
 
     cursor = _load_cursor()
