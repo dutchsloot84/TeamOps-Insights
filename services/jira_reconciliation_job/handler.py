@@ -165,7 +165,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:  # pragma: n
 
         try:
             issues = session.search(jql)
-        except Exception as exc:  # pragma: no cover - network errors
+        except Exception:  # pragma: no cover - network errors
             LOGGER.exception("Jira search failed", extra={"fix_version": fix_version, "jql": jql})
             errors.append(f"jira:{fix_version}")
             continue
@@ -173,7 +173,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:  # pragma: n
         try:
             result = _reconcile_fix_version(fix_version, issues)
             stats.append(result)
-        except Exception as exc:  # pragma: no cover - defensive guard
+        except Exception:  # pragma: no cover - defensive guard
             LOGGER.exception("Reconciliation failed", extra={"fix_version": fix_version})
             errors.append(f"ddb:{fix_version}")
 
