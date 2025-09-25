@@ -24,6 +24,11 @@ def test_parse_args_records_config_path(tmp_path: Path) -> None:
     assert Path(args.config) == config_path
 
 
+def test_cli_accepts_log_level() -> None:
+    args = cli.parse_args(["--log-level", "debug"])
+    assert args.log_level == "debug"
+
+
 def test_run_builds_config_from_yaml(tmp_path: Path) -> None:
     """``cli.run`` should integrate with ``build_config`` to produce a final mapping."""
 

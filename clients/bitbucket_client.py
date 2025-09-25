@@ -1,16 +1,18 @@
 """Bitbucket Cloud client to retrieve commits for release audits."""
 from __future__ import annotations
 
-import logging
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
 import requests
 from requests.auth import HTTPBasicAuth
 
+from releasecopilot.errors import BitbucketRequestError
+from releasecopilot.logging_config import get_logger
+
 from .base import BaseAPIClient
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class BitbucketClient(BaseAPIClient):
@@ -64,7 +66,18 @@ class BitbucketClient(BaseAPIClient):
                         all_commits.extend(cached["values"])
                         continue
 
-                commits = self._fetch_commits_for_branch(repo, branch, start, end)
+                try:
+                    commits = self._fetch_commits_for_branch(repo, branch, start, end)
+                except BitbucketRequestError:
+                    raise
+                except requests.RequestException as exc:  # pragma: no cover - defensive guard
+                    context = {
+                        "service": "bitbucket",
+                        "repository": repo,
+                        "branch": branch,
+                    }
+                    logger.error("Bitbucket request failed", extra=context)
+                    raise BitbucketRequestError("Bitbucket request failed", context=context) from exc
                 payload = {
                     "retrieved_at": datetime.utcnow().isoformat(),
                     "workspace": self.workspace,
@@ -90,14 +103,33 @@ class BitbucketClient(BaseAPIClient):
         }
         commits: List[Dict[str, Any]] = []
         while url:
-            response = self.session.get(
-                url,
+            response = self._request_with_retry(
+                session=self.session,
+                method="GET",
+                url=url,
+                logger_context={
+                    "service": "bitbucket",
+                    "repository": repo_slug,
+                    "branch": branch,
+                },
                 params=params,
                 headers=self._get_auth_headers(),
                 auth=self._get_auth(),
                 timeout=30,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except requests.RequestException as exc:
+                snippet = response.text[:200]
+                context = {
+                    "service": "bitbucket",
+                    "repository": repo_slug,
+                    "branch": branch,
+                    "status_code": response.status_code,
+                    "snippet": snippet,
+                }
+                logger.error("Bitbucket HTTP error", extra=context)
+                raise BitbucketRequestError("Failed to fetch Bitbucket commits", context=context) from exc
             payload = response.json()
             values = payload.get("values", [])
             for commit in values:
