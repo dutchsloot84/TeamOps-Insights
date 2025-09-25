@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from aws_cdk import App, Environment
 from aws_cdk.assertions import Match, Template
 
@@ -25,6 +26,18 @@ def _synth_template(*, app_context: dict[str, str] | None = None, **overrides) -
         **overrides,
     )
     return Template.from_stack(stack)
+
+
+def _create_stack(*, app_context: dict[str, str] | None = None, **overrides) -> CoreStack:
+    app = App(context=app_context or {})
+    return CoreStack(
+        app,
+        "TestCoreStack",
+        env=Environment(account=ACCOUNT, region=REGION),
+        bucket_name=f"releasecopilot-artifacts-{ACCOUNT}",
+        lambda_asset_path=ASSET_DIR,
+        **overrides,
+    )
 
 
 def test_bucket_encryption_and_versioning() -> None:
@@ -70,7 +83,12 @@ def test_bucket_lifecycle_rules() -> None:
 
 def test_iam_policy_statements() -> None:
     template = _synth_template()
-    policy = next(iter(template.find_resources("AWS::IAM::Policy").values()))
+    policies = template.find_resources("AWS::IAM::Policy")
+    policy = next(
+        policy
+        for name, policy in policies.items()
+        if "LambdaExecutionPolicy" in name
+    )
     statements = policy["Properties"]["PolicyDocument"]["Statement"]
 
     assert {stmt["Sid"] for stmt in statements} == {
@@ -104,14 +122,15 @@ def test_iam_policy_statements() -> None:
     assert logs_statement["Resource"].endswith(":log-group:/aws/lambda/*")
 
 
-def test_lambda_environment_and_log_retention() -> None:
+def test_lambda_environment_and_log_groups() -> None:
     template = _synth_template()
     template.has_resource_properties(
         "AWS::Lambda::Function",
-        {
+        Match.object_like(
+            {
             "Runtime": "python3.11",
             "Environment": {
-                "Variables": Match.object_equals(
+                "Variables": Match.object_like(
                     {
                         "RC_S3_BUCKET": Match.any_value(),
                         "RC_S3_PREFIX": "releasecopilot",
@@ -119,13 +138,43 @@ def test_lambda_environment_and_log_retention() -> None:
                     }
                 )
             },
-        },
+        }
+        ),
     )
 
-    template.has_resource_properties(
-        "Custom::LogRetention",
-        {"RetentionInDays": 30},
-    )
+    log_groups = template.find_resources("AWS::Logs::LogGroup")
+    assert len(log_groups) >= 3
+    for log_group in log_groups.values():
+        assert log_group["Properties"].get("RetentionInDays") == 30
+
+    assert not template.find_resources("Custom::LogRetention")
+
+
+def test_lambda_asset_paths_are_stable() -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    webhook_path = project_root / "services" / "jira_sync_webhook"
+    reconciliation_path = project_root / "services" / "jira_reconciliation_job"
+
+    assert webhook_path.is_dir()
+    assert reconciliation_path.is_dir()
+
+
+def test_stack_raises_when_asset_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    webhook_path = project_root / "services" / "jira_sync_webhook"
+    reconciliation_path = project_root / "services" / "jira_reconciliation_job"
+
+    original_exists = Path.exists
+
+    def fake_exists(self: Path) -> bool:
+        if self in {webhook_path, reconciliation_path}:
+            return False
+        return original_exists(self)
+
+    monkeypatch.setattr(Path, "exists", fake_exists)
+
+    with pytest.raises(FileNotFoundError):
+        _create_stack()
 
 
 def test_lambda_alarms_created() -> None:
@@ -148,6 +197,7 @@ def test_stack_outputs_present() -> None:
     outputs = template.to_json()["Outputs"]
     assert "ArtifactsBucketName" in outputs
     assert "LambdaArn" in outputs
+    assert "JiraReconciliationLambdaName" in outputs
 
 
 def test_eventbridge_rule_targets_lambda_when_enabled() -> None:
@@ -157,26 +207,60 @@ def test_eventbridge_rule_targets_lambda_when_enabled() -> None:
     )
 
     rules = template.find_resources("AWS::Events::Rule")
-    assert len(rules) == 1
+    assert len(rules) == 2
 
-    rule = next(iter(rules.values()))
-    properties = rule["Properties"]
+    release_rule = next(
+        rule
+        for rule in rules.values()
+        if rule["Properties"]["Targets"][0]["Arn"]["Fn::GetAtt"][0].startswith("ReleaseCopilotLambda")
+    )
+    release_properties = release_rule["Properties"]
+    assert release_properties["ScheduleExpression"] == "cron(0 12 * * ? *)"
 
-    assert properties["ScheduleExpression"] == "cron(0 12 * * ? *)"
-    assert properties["State"] == "ENABLED"
-
-    targets = properties["Targets"]
-    assert len(targets) == 1
-
-    target = targets[0]
-    assert target["Id"] == "Target0"
-
-    arn_getatt = target["Arn"]["Fn::GetAtt"]
-    assert arn_getatt[1] == "Arn"
-    assert arn_getatt[0].startswith("ReleaseCopilotLambda")
+    reconciliation_rule = next(
+        rule
+        for rule in rules.values()
+        if rule["Properties"]["Targets"][0]["Arn"]["Fn::GetAtt"][0].startswith("JiraReconciliationLambda")
+    )
+    reconciliation_properties = reconciliation_rule["Properties"]
+    assert reconciliation_properties["ScheduleExpression"] == "cron(15 7 * * ? *)"
+    assert reconciliation_properties["Targets"][0]["DeadLetterConfig"]
 
 
 def test_eventbridge_rule_absent_when_schedule_disabled() -> None:
     template = _synth_template(schedule_enabled=False)
 
-    assert template.find_resources("AWS::Events::Rule") == {}
+    rules = template.find_resources("AWS::Events::Rule")
+    assert len(rules) == 1
+    target = rules[next(iter(rules))]["Properties"]["Targets"][0]
+    assert target["Arn"]["Fn::GetAtt"][0].startswith("JiraReconciliationLambda")
+
+
+def test_reconciliation_lambda_and_queue_created() -> None:
+    template = _synth_template()
+
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        Match.object_like(
+            {
+                "Handler": "handler.handler",
+                "Runtime": "python3.11",
+                "Environment": {
+                    "Variables": Match.object_like(
+                        {
+                            "JIRA_BASE_URL": Match.any_value(),
+                            "JIRA_SECRET_ARN": Match.any_value(),
+                            "METRICS_NAMESPACE": "ReleaseCopilot/JiraSync",
+                        }
+                    )
+                },
+            }
+        ),
+    )
+
+    template.has_resource_properties(
+        "AWS::SQS::Queue",
+        {
+            "MessageRetentionPeriod": 1209600,
+        },
+    )

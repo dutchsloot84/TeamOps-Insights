@@ -20,6 +20,7 @@ except Exception:  # pragma: no cover - ignore missing dependency
 
 from clients.bitbucket_client import BitbucketClient
 from clients.jira_client import JiraClient, compute_fix_version_window
+from clients.jira_store import JiraIssueStore
 from clients.secrets_manager import CredentialStore, SecretsManager
 from config.settings import load_settings
 from exporters.excel_exporter import ExcelExporter
@@ -107,7 +108,7 @@ def run_audit(config: AuditConfig) -> Dict[str, Any]:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
-    jira_client = build_jira_client(settings, credential_store)
+    jira_store = build_jira_store(settings, credential_store)
     bitbucket_client = build_bitbucket_client(settings, credential_store)
 
     freeze_dt = parse_freeze_date(config.freeze_date)
@@ -126,7 +127,7 @@ def run_audit(config: AuditConfig) -> Dict[str, Any]:
         },
     )
 
-    issues, jira_cache_path = jira_client.fetch_issues(
+    issues, jira_cache_path = jira_store.fetch_issues(
         fix_version=config.fix_version,
         use_cache=config.use_cache,
     )
@@ -222,6 +223,27 @@ def build_jira_client(settings: Dict[str, Any], credential_store: CredentialStor
         token_expiry=token_expiry,
         cache_dir=TEMP_DIR / "jira",
     )
+
+
+def build_jira_store(settings: Dict[str, Any], credential_store: CredentialStore) -> JiraIssueStore:
+    jira_cfg = settings.get("jira", {})
+    aws_cfg = settings.get("aws", {})
+    secret_id = (
+        aws_cfg.get("secrets", {}).get("jira")
+        or os.getenv("JIRA_SECRET_ARN")
+        or os.getenv("OAUTH_SECRET_ARN")
+    )
+
+    table_name = credential_store.get(
+        "JIRA_TABLE_NAME",
+        secret_id=secret_id,
+        default=jira_cfg.get("issue_table_name"),
+    )
+    if not table_name:
+        raise RuntimeError("Jira issue DynamoDB table name is not configured")
+
+    region = settings.get("aws", {}).get("region")
+    return JiraIssueStore(table_name=table_name, region_name=region)
 
 
 def build_bitbucket_client(settings: Dict[str, Any], credential_store: CredentialStore) -> BitbucketClient:

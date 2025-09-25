@@ -7,9 +7,12 @@ from typing import Optional
 from aws_cdk import (
     CfnOutput,
     Duration,
+    RemovalPolicy,
     Stack,
+    aws_apigateway as apigateway,
     aws_cloudwatch as cw,
     aws_cloudwatch_actions as actions,
+    aws_dynamodb as dynamodb,
     aws_events as events,
     aws_events_targets as targets,
     aws_iam as iam,
@@ -17,6 +20,7 @@ from aws_cdk import (
     aws_logs as logs,
     aws_s3 as s3,
     aws_secretsmanager as secretsmanager,
+    aws_sqs as sqs,
     aws_sns as sns,
     aws_sns_subscriptions as subs,
 )
@@ -42,11 +46,31 @@ class CoreStack(Stack):
         lambda_memory_mb: int = 512,
         schedule_enabled: bool = False,
         schedule_cron: str | None = None,
+        jira_webhook_secret_arn: Optional[str] = None,
+        reconciliation_schedule_expression: str | None = None,
+        enable_reconciliation_schedule: bool = True,
+        reconciliation_fix_versions: Optional[str] = None,
+        reconciliation_jql_template: Optional[str] = None,
+        jira_base_url: Optional[str] = None,
+        metrics_namespace: Optional[str] = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         asset_path = Path(lambda_asset_path).expanduser().resolve()
+        project_root = Path(__file__).resolve().parents[2]
+        webhook_asset_path = project_root / "services" / "jira_sync_webhook"
+        reconciliation_asset_path = project_root / "services" / "jira_reconciliation_job"
+
+        if not webhook_asset_path.exists():
+            raise FileNotFoundError(
+                f"Jira webhook Lambda asset directory is missing: {webhook_asset_path}"
+            )
+        if not reconciliation_asset_path.exists():
+            raise FileNotFoundError(
+                "Jira reconciliation Lambda asset directory is missing: "
+                f"{reconciliation_asset_path}"
+            )
 
         self.bucket = s3.Bucket(
             self,
@@ -109,6 +133,13 @@ class CoreStack(Stack):
         clamped_timeout = max(180, min(lambda_timeout_sec, 300))
         clamped_memory = max(512, min(lambda_memory_mb, 1024))
 
+        release_lambda_log_group = logs.LogGroup(
+            self,
+            "ReleaseCopilotLambdaLogGroup",
+            retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         self.lambda_function = _lambda.Function(
             self,
             "ReleaseCopilotLambda",
@@ -119,15 +150,165 @@ class CoreStack(Stack):
             memory_size=clamped_memory,
             role=self.execution_role,
             environment=environment,
-            log_retention=logs.RetentionDays.ONE_MONTH,
+            log_group=release_lambda_log_group,
         )
+
+        self.jira_table = dynamodb.Table(
+            self,
+            "JiraIssuesTable",
+            partition_key=dynamodb.Attribute(
+                name="issue_id", type=dynamodb.AttributeType.STRING
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=RemovalPolicy.RETAIN,
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
+        )
+
+        cfn_table = self.jira_table.node.default_child
+        if isinstance(cfn_table, dynamodb.CfnTable):
+            cfn_table.point_in_time_recovery_specification = (
+                dynamodb.CfnTable.PointInTimeRecoverySpecificationProperty(
+                    point_in_time_recovery_enabled=True
+                )
+            )
+
+        self.jira_table.add_global_secondary_index(
+            index_name="FixVersionIndex",
+            partition_key=dynamodb.Attribute(
+                name="fix_version", type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(name="updated_at", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+        self.jira_table.add_global_secondary_index(
+            index_name="StatusIndex",
+            partition_key=dynamodb.Attribute(name="status", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="updated_at", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+        self.jira_table.add_global_secondary_index(
+            index_name="AssigneeIndex",
+            partition_key=dynamodb.Attribute(name="assignee", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="updated_at", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+
+        self.lambda_function.add_environment("JIRA_TABLE_NAME", self.jira_table.table_name)
+        self.jira_table.grant_read_data(self.lambda_function)
+
+        webhook_secret = self._resolve_secret(
+            "JiraWebhookSecret",
+            provided_arn=jira_webhook_secret_arn,
+            description="Shared secret used to authenticate Jira webhook deliveries",
+        )
+
+        webhook_environment = {
+            "TABLE_NAME": self.jira_table.table_name,
+            "LOG_LEVEL": "INFO",
+            "RC_DDB_MAX_ATTEMPTS": "5",
+        }
+        if webhook_secret:
+            webhook_environment["WEBHOOK_SECRET_ARN"] = webhook_secret.secret_arn
+
+        webhook_log_group = logs.LogGroup(
+            self,
+            "JiraWebhookLambdaLogGroup",
+            retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
+        self.webhook_lambda = _lambda.Function(
+            self,
+            "JiraWebhookLambda",
+            runtime=_lambda.Runtime.PYTHON_3_11,
+            handler="handler.handler",
+            code=_lambda.Code.from_asset(str(webhook_asset_path)),
+            timeout=Duration.seconds(60),
+            memory_size=256,
+            environment=webhook_environment,
+            log_group=webhook_log_group,
+        )
+
+        self.jira_table.grant_read_write_data(self.webhook_lambda)
+        if webhook_secret:
+            webhook_secret.grant_read(self.webhook_lambda)
+
+        reconciliation_environment = {
+            "TABLE_NAME": self.jira_table.table_name,
+            "JIRA_BASE_URL": (jira_base_url or "https://your-domain.atlassian.net"),
+            "RC_DDB_MAX_ATTEMPTS": "5",
+            "RC_DDB_BASE_DELAY": "0.5",
+            "METRICS_NAMESPACE": metrics_namespace or "ReleaseCopilot/JiraSync",
+            "JIRA_SECRET_ARN": self.jira_secret.secret_arn,
+        }
+        if reconciliation_fix_versions:
+            reconciliation_environment["FIX_VERSIONS"] = reconciliation_fix_versions
+        if reconciliation_jql_template:
+            reconciliation_environment["JQL_TEMPLATE"] = reconciliation_jql_template
+
+        self.reconciliation_dlq = sqs.Queue(
+            self,
+            "JiraReconciliationDLQ",
+            retention_period=Duration.days(14),
+            encryption=sqs.QueueEncryption.KMS_MANAGED,
+        )
+
+        reconciliation_log_group = logs.LogGroup(
+            self,
+            "JiraReconciliationLambdaLogGroup",
+            retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
+        self.reconciliation_lambda = _lambda.Function(
+            self,
+            "JiraReconciliationLambda",
+            runtime=_lambda.Runtime.PYTHON_3_11,
+            handler="handler.handler",
+            code=_lambda.Code.from_asset(str(reconciliation_asset_path)),
+            timeout=Duration.seconds(300),
+            memory_size=512,
+            environment=reconciliation_environment,
+            log_group=reconciliation_log_group,
+            dead_letter_queue=self.reconciliation_dlq,
+            dead_letter_queue_enabled=True,
+            max_event_age=Duration.hours(6),
+            retry_attempts=2,
+        )
+
+        self.jira_table.grant_read_write_data(self.reconciliation_lambda)
+        self.jira_secret.grant_read(self.reconciliation_lambda)
+
+        self.webhook_api = apigateway.RestApi(
+            self,
+            "JiraWebhookApi",
+            rest_api_name="ReleaseCopilotJiraWebhook",
+            deploy_options=apigateway.StageOptions(
+                logging_level=apigateway.MethodLoggingLevel.INFO,
+                data_trace_enabled=False,
+                metrics_enabled=True,
+            ),
+        )
+
+        jira_resource = self.webhook_api.root.add_resource("jira")
+        webhook_resource = jira_resource.add_resource("webhook")
+        webhook_integration = apigateway.LambdaIntegration(self.webhook_lambda)
+        webhook_resource.add_method("POST", webhook_integration)
 
         self._add_lambda_alarms()
         self._add_schedule(schedule_enabled=schedule_enabled, schedule_cron=schedule_cron)
 
+        self._add_reconciliation_schedule(
+            enable_schedule=enable_reconciliation_schedule,
+            schedule_expression=reconciliation_schedule_expression,
+        )
+
         CfnOutput(self, "ArtifactsBucketName", value=self.bucket.bucket_name)
         CfnOutput(self, "LambdaName", value=self.lambda_function.function_name)
         CfnOutput(self, "LambdaArn", value=self.lambda_function.function_arn)
+        CfnOutput(self, "JiraTableName", value=self.jira_table.table_name)
+        CfnOutput(self, "JiraWebhookUrl", value=self.webhook_api.url)
+        CfnOutput(self, "JiraReconciliationLambdaName", value=self.reconciliation_lambda.function_name)
 
     def _attach_policies(self) -> None:
         prefix_objects_arn = self.bucket.arn_for_objects(f"{self.RC_S3_PREFIX}/*")
@@ -248,3 +429,27 @@ class CoreStack(Stack):
             schedule=events.Schedule.expression(expression),
         )
         rule.add_target(targets.LambdaFunction(self.lambda_function))
+
+    def _add_reconciliation_schedule(
+        self,
+        *,
+        enable_schedule: bool,
+        schedule_expression: str | None,
+    ) -> None:
+        if not enable_schedule:
+            return
+
+        expression = schedule_expression or "cron(15 7 * * ? *)"
+        rule = events.Rule(
+            self,
+            "JiraReconciliationSchedule",
+            schedule=events.Schedule.expression(expression),
+        )
+        rule.add_target(
+            targets.LambdaFunction(
+                self.reconciliation_lambda,
+                retry_attempts=2,
+                max_event_age=Duration.hours(2),
+                dead_letter_queue=self.reconciliation_dlq,
+            )
+        )

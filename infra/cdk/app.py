@@ -46,6 +46,17 @@ def _load_context(app: App) -> Dict[str, Any]:
         "lambdaHandler": str(_context(app, "lambdaHandler", "main.handler")),
         "lambdaTimeoutSec": int(_context(app, "lambdaTimeoutSec", 180)),
         "lambdaMemoryMb": int(_context(app, "lambdaMemoryMb", 512)),
+        "jiraWebhookSecretArn": str(_context(app, "jiraWebhookSecretArn", "")),
+        "jiraBaseUrl": str(_context(app, "jiraBaseUrl", "https://your-domain.atlassian.net")),
+        "reconciliationCron": str(_context(app, "reconciliationCron", "")),
+        "reconciliationFixVersions": str(_context(app, "reconciliationFixVersions", "")),
+        "reconciliationJqlTemplate": str(
+            _context(app, "reconciliationJqlTemplate", "fixVersion = '{fix_version}' ORDER BY key")
+        ),
+        "reconciliationScheduleEnabled": _to_bool(
+            _context(app, "reconciliationScheduleEnabled", True)
+        ),
+        "metricsNamespace": str(_context(app, "metricsNamespace", "ReleaseCopilot/JiraSync")),
     }
 
 
@@ -135,6 +146,13 @@ CoreStack(
     lambda_memory_mb=context["lambdaMemoryMb"],
     schedule_enabled=context["scheduleEnabled"],
     schedule_cron=context["scheduleCron"],
+    jira_webhook_secret_arn=context["jiraWebhookSecretArn"] or None,
+    reconciliation_schedule_expression=context["reconciliationCron"] or None,
+    enable_reconciliation_schedule=context["reconciliationScheduleEnabled"],
+    reconciliation_fix_versions=context["reconciliationFixVersions"] or None,
+    reconciliation_jql_template=context["reconciliationJqlTemplate"] or None,
+    jira_base_url=context["jiraBaseUrl"] or None,
+    metrics_namespace=context["metricsNamespace"] or None,
 )
 
 app.synth()
