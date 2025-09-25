@@ -30,3 +30,4 @@ nav:
       - Agents: diagrams/agents.md
   - Deployment: deployment.md
   - Agent Research: agent_research.md
+  - Git Historian: git-historian.md
