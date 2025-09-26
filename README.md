@@ -72,7 +72,7 @@ Configuration precedence is:
 
 1. CLI flags (highest priority)
 2. Environment variables, including values sourced from `.env`
-3. YAML defaults (`releasecopilot.yaml`)
+3. YAML defaults (`config/settings.yaml`)
 
 For non-local deployments, rely on AWS Secrets Manager wherever possible and only fall back to `.env` for iterative development.
 
@@ -103,6 +103,7 @@ python main.py \
 | `--s3-bucket` | Override the S3 bucket defined in `config/settings.yaml`. |
 | `--s3-prefix` | Prefix within the S3 bucket for uploaded artifacts (default: `releasecopilot`). |
 | `--output-prefix` | Basename for generated output files. |
+| `--log-level` | Logging verbosity for the current run. |
 
 ### S3 Upload Layout
 
@@ -240,7 +241,8 @@ Production buckets are retained by default; set `"retainBucket": false` in non-p
 - `data/<prefix>.json` – Structured audit report.
 - `data/<prefix>.xlsx` – Multi-tab Excel workbook with summary, gaps, and mapping.
 
-Artifacts are also uploaded to S3 when `--upload-s3` is supplied.
+Artifacts are automatically uploaded to Amazon S3 whenever a bucket is configured via `--s3-bucket` (or the corresponding
+configuration/env setting). Use `--s3-prefix` to control the destination prefix.
 
 ## Docker Compose
 

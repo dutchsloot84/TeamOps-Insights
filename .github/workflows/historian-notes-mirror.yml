@@ -1,0 +1,42 @@
+name: Historian — Notes Mirror
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+      - 'release/*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mirror-notes:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Historian (collect + mirror)
+        run: |
+          python -m scripts.generate_history --since "${SINCE_INPUT:-7d}" --until now
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit mirrored notes if changed
+        run: |
+          if git status --porcelain "docs/history/notes" | grep .; then
+            git config user.name "Release Copilot Bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add docs/history/notes
+            git commit -m "chore(notes): mirror decisions from issues/prs"
+            git push
+          else
+            echo "No notes changes detected."
+          fi
