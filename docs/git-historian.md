@@ -22,10 +22,12 @@ pip install -r requirements.txt
 # Generate a history snapshot from the last 7 days
 export GITHUB_TOKEN=<your-token>
 export PYTHONPATH=$(pwd)
-python -m scripts.generate_history --since 7d --until now --output docs/history
+python -m scripts.generate_history --since 7d --until now --output docs/history --debug-scan
 ```
 
 * The script creates `docs/history/YYYY-MM-DD-checkin.md` using [`docs/history/HISTORY_TEMPLATE.md`](history/HISTORY_TEMPLATE.md).
+* Use `--debug-scan` to automatically enable DEBUG logging and emit additional scan diagnostics (counts, resolved paths).
+  Pass `--log-level` if you need a different verbosity.
 * Use `--since` with ISO timestamps (`2025-01-01T00:00:00Z`) or relative windows (`14d`, `48h`).
 * Use `--until now` (default) or a specific ISO timestamp (`2025-01-15`) to cap the window end.
 * Use `--repo owner/name` to override automatic repository detection.
@@ -55,7 +57,7 @@ and can also be triggered manually (`workflow_dispatch`). It performs the follow
 2. Lint the GitHub workflow definitions with [`reviewdog/action-actionlint`](https://github.com/reviewdog/action-actionlint)
    pinned to commit `93dc1f9bc10856298b6cc1a3b3239cfbbb87fe4b` (release `v1.67.0`) and `fail_level: error`
    so any detected issues fail fast.
-3. Run `PYTHONPATH=$(pwd) python -m scripts.generate_history --since 7d --until now --output docs/history`.
+3. Run `PYTHONPATH=$(pwd) python -m scripts.generate_history --since 7d --until now --output docs/history --debug-scan`.
 4. Commit changes in `docs/history/*.md` on a branch named `auto/history-<date>`.
 5. Open a pull request summarizing the update.
 
@@ -94,7 +96,7 @@ To run the workflow manually:
 ## Troubleshooting
 
 * Ensure `GITHUB_TOKEN` is available; unauthenticated calls are heavily rate limited.
-* Use `--log-level DEBUG` for verbose output when debugging API calls.
+* Use `--debug-scan` (or `--log-level DEBUG`) for verbose output when debugging API calls or data collectors.
 * If you rely on Jira, confirm the `HISTORIAN_JIRA_*` variables are set and the JQL matches your workflow.
 * Customize the schedule in the workflow by editing the cron expression in `weekly-history.yml`.
 
