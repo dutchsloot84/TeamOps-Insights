@@ -1,0 +1,24 @@
+{
+  "workflow_runs": [
+    {
+      "id": 99,
+      "run_number": 58,
+      "html_url": "https://github.com/org/repo/actions/runs/99",
+      "created_at": "2024-01-05T15:00:00Z"
+    }
+  ],
+  "artifacts": [
+    {
+      "run_id": 99,
+      "items": [
+        {
+          "name": "coverage-report",
+          "created_at": "2024-01-05T15:30:00Z",
+          "expired": false,
+          "archive_download_url": "https://github.com/org/repo/suites/123/artifacts/1",
+          "expires_at": "2024-02-04T00:00:00Z"
+        }
+      ]
+    }
+  ]
+}

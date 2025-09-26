@@ -1,0 +1,20 @@
+{
+  "comments": [
+    {
+      "body": "Decision: Adopt fast release cadence\nNote: Sync with QA weekly",
+      "updated_at": "2024-01-03T12:00:00Z",
+      "issue_url": "https://api.github.com/repos/org/repo/issues/77",
+      "html_url": "https://github.com/org/repo/issues/77#issuecomment-1",
+      "user": {"login": "octocat"}
+    }
+  ],
+  "review_comments": [
+    {
+      "body": "Action: Cover API error path",
+      "updated_at": "2024-01-04T09:30:00Z",
+      "pull_request_url": "https://api.github.com/repos/org/repo/pulls/12",
+      "html_url": "https://github.com/org/repo/pull/12#discussion_r1",
+      "user": {"login": "hubot"}
+    }
+  ]
+}

@@ -2,19 +2,19 @@
 
 _Generated from history snapshot starting {{since}} and ending {{until}}_
 
-## Completed
+## Completed ({{completed_count}})
 {{completed}}
 
-## In Progress
+## In Progress ({{in_progress_count}})
 {{in_progress}}
 
-## Upcoming
-{{upcoming}}
+## Backlog ({{backlog_count}})
+{{backlog}}
 
-## Notes & Decisions
+## Notes & Decisions ({{notes_count}})
 {{notes}}
 
-## Artifacts & Traceability
+## Artifacts & Traceability ({{artifacts_count}})
 {{artifacts}}
 
 ---

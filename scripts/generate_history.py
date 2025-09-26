@@ -1,27 +1,5 @@
 #!/usr/bin/env python3
-r"""Generate Release Copilot history check-ins.
-
-This script collects project activity (issues, pull requests, decisions, and artifacts)
-and renders a Markdown snapshot using ``docs/history/HISTORY_TEMPLATE.md``. It also
-maintains ``docs/context/context-index.json`` for machine-readable discovery.
-
-Usage examples::
-
-    python scripts/generate_history.py --since 7d --output docs/history
-    python scripts/generate_history.py --since 2025-01-01T00:00:00Z --repo owner/name
-
-Environment variables::
-
-    GITHUB_TOKEN                 GitHub token (defaults to workflow token in CI)
-    HISTORIAN_ENABLE_JIRA        When ``true`` parse commit messages for Jira keys.
-    HISTORIAN_ENABLE_S3_ARTIFACTS When ``true`` render artifact entries (requires --artifacts-file or env path).
-    HISTORIAN_ENABLE_HASH        When ``true`` include sha256 hashes from artifact data.
-    HISTORIAN_ARTIFACTS_FILE     Default path for ``--artifacts-file``.
-
-The optional Jira integration currently scans local commit messages for keys matching
-``[A-Z]+-\d+`` and surfaces them in the Notes & Decisions section. Teams can extend this
-hook to call Jira APIs or execute JQL queries using additional environment variables.
-"""
+"""Generate Release Copilot history check-ins with extended collectors."""
 
 from __future__ import annotations
 
@@ -32,46 +10,17 @@ import logging
 import os
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import requests
+import yaml
+
+from scripts.github import ProjectsV2Client
 
 LOGGER = logging.getLogger(__name__)
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
-
-
-def _parse_since(value: str) -> dt.datetime:
-    """Parse --since values such as ``7d`` or ISO timestamps."""
-
-    if not value:
-        raise ValueError("--since cannot be empty")
-
-    value = value.strip()
-    now = dt.datetime.now(dt.timezone.utc)
-
-    if value.endswith("d") and value[:-1].isdigit():
-        days = int(value[:-1])
-        return now - dt.timedelta(days=days)
-    if value.endswith("h") and value[:-1].isdigit():
-        hours = int(value[:-1])
-        return now - dt.timedelta(hours=hours)
-
-    # Try ISO 8601
-    try:
-        if value.endswith("Z"):
-            value = value[:-1] + "+00:00"
-        parsed = dt.datetime.fromisoformat(value)
-    except ValueError as exc:
-        raise ValueError(
-            "Unable to parse --since value. Use relative formats like '7d' or '24h' "
-            "or provide an ISO timestamp (e.g. 2024-12-31T00:00:00Z)."
-        ) from exc
-
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=dt.timezone.utc)
-    return parsed.astimezone(dt.timezone.utc)
 
 
 @dataclass
@@ -82,6 +31,7 @@ class Issue:
     closed_at: Optional[dt.datetime]
     assignees: List[str]
     labels: List[str]
+    status: Optional[str] = None
 
 
 @dataclass
@@ -98,18 +48,32 @@ class HistoryDocument:
     markdown: str
     since: dt.datetime
     until: dt.datetime
-    completed_count: int
-    in_progress_count: int
-    upcoming_count: int
+    counts: Dict[str, int]
+
+
+@dataclass
+class SectionResult:
+    entries: List[str]
+    filters: List[str]
+    metadata: Dict[str, object] = field(default_factory=dict)
+
+    @property
+    def count(self) -> int:
+        return len(self.entries)
 
 
 class GithubClient:
     """Minimal GitHub REST API helper."""
 
-    def __init__(self, repo: str, token: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        repo: str,
+        token: Optional[str] = None,
+        session: Optional[requests.Session] = None,
+    ) -> None:
         self.repo = repo
         self.base_url = f"https://api.github.com/repos/{repo}"
-        self.session = requests.Session()
+        self.session = session or requests.Session()
         headers = {
             "Accept": "application/vnd.github+json",
             "User-Agent": "release-copilot-git-historian",
@@ -118,16 +82,35 @@ class GithubClient:
             headers["Authorization"] = f"Bearer {token}"
         self.session.headers.update(headers)
 
-    def paginate(self, url: str, params: Optional[dict] = None) -> Iterable[dict]:
+    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
+        LOGGER.debug("%s %s params=%s", method, url, kwargs.get("params"))
+        response = self.session.request(method, url, timeout=30, **kwargs)
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"GitHub API error {response.status_code}: {response.text}"
+            )
+        return response
+
+    def paginate(
+        self,
+        url: str,
+        params: Optional[dict] = None,
+        data_key: Optional[str] = None,
+    ) -> Iterable[dict]:
         params = params.copy() if params else None
         while url:
-            LOGGER.debug("GET %s params=%s", url, params)
-            response = self.session.get(url, params=params, timeout=30)
-            if response.status_code >= 400:
-                raise RuntimeError(
-                    f"GitHub API error {response.status_code}: {response.text}"
-                )
-            yield from response.json()
+            response = self._request("GET", url, params=params)
+            data = response.json()
+            if data_key is None:
+                if isinstance(data, list):
+                    items = data
+                else:
+                    raise RuntimeError(
+                        f"Expected list response for {url}, received {type(data).__name__}"
+                    )
+            else:
+                items = data.get(data_key, [])
+            yield from items
             if "next" in response.links:
                 url = response.links["next"]["url"]
                 params = None
@@ -208,6 +191,73 @@ class GithubClient:
             results.append(pr)
         return results
 
+    def list_issue_comments(self, since: dt.datetime) -> List[dict]:
+        params = {
+            "since": since.strftime(ISO_FORMAT),
+            "per_page": 100,
+        }
+        return list(
+            self.paginate(f"{self.base_url}/issues/comments", params)
+        )
+
+    def list_review_comments(self, since: dt.datetime) -> List[dict]:
+        params = {
+            "since": since.strftime(ISO_FORMAT),
+            "per_page": 100,
+        }
+        return list(
+            self.paginate(
+                f"{self.base_url}/pulls/comments", params
+            )
+        )
+
+    def list_workflow_runs(self, workflow: str) -> Iterable[dict]:
+        params = {
+            "per_page": 50,
+            "status": "completed",
+        }
+        yield from self.paginate(
+            f"{self.base_url}/actions/workflows/{workflow}/runs",
+            params,
+            data_key="workflow_runs",
+        )
+
+    def list_run_artifacts(self, run_id: int) -> List[dict]:
+        response = self._request(
+            "GET", f"{self.base_url}/actions/runs/{run_id}/artifacts"
+        )
+        data = response.json()
+        return data.get("artifacts", [])
+
+
+def _parse_since(value: str) -> dt.datetime:
+    """Parse --since values such as ``7d`` or ISO timestamps."""
+
+    if not value:
+        raise ValueError("--since cannot be empty")
+
+    value = value.strip()
+    now = dt.datetime.now(dt.timezone.utc)
+
+    if value.endswith("d") and value[:-1].isdigit():
+        days = int(value[:-1])
+        return now - dt.timedelta(days=days)
+    if value.endswith("h") and value[:-1].isdigit():
+        hours = int(value[:-1])
+        return now - dt.timedelta(hours=hours)
+
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(
+            "Unable to parse --since value. Use relative formats like '7d' or '24h' "
+            "or provide an ISO timestamp (e.g. 2024-12-31T00:00:00Z)."
+        ) from exc
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
+
 
 def _parse_github_datetime(value: Optional[str]) -> Optional[dt.datetime]:
     if not value:
@@ -231,7 +281,6 @@ def _determine_repo(arg_repo: Optional[str]) -> str:
     except (subprocess.CalledProcessError, FileNotFoundError):
         output = ""
     if output:
-        # Support HTTPS or SSH remotes.
         if output.endswith(".git"):
             output = output[:-4]
         if output.startswith("git@"):
@@ -246,28 +295,249 @@ def _determine_repo(arg_repo: Optional[str]) -> str:
     )
 
 
-def _format_issue(issue: Issue) -> str:
+def _load_historian_config(config_path: Optional[Path], root: Path) -> Dict[str, object]:
+    search_path = config_path or root / "config" / "defaults.yml"
+    if not search_path.exists():
+        raise FileNotFoundError(
+            f"Historian configuration not found at {search_path.as_posix()}"
+        )
+    with search_path.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    return data.get("historian", {})
+
+
+def _format_issue(issue: Issue, include_status: bool = False) -> str:
     assignees = f" (@{' @'.join(issue.assignees)})" if issue.assignees else ""
-    return f"- Issue [#{issue.number}]({issue.url}): {issue.title}{assignees}"
+    status = f" — Status: {issue.status}" if include_status and issue.status else ""
+    return f"- Issue [#{issue.number}]({issue.url}): {issue.title}{assignees}{status}"
 
 
 def _format_pr(pr: PullRequest) -> str:
     author = f" by @{pr.author}" if pr.author else ""
-    merged = (
-        pr.merged_at.strftime("%Y-%m-%d") if pr.merged_at else ""
-    )
+    merged = pr.merged_at.strftime("%Y-%m-%d") if pr.merged_at else ""
     merged_suffix = f" (merged {merged})" if merged else ""
     return f"- PR [#{pr.number}]({pr.url}): {pr.title}{author}{merged_suffix}"
 
 
-def _format_section(items: Iterable[str]) -> str:
-    items = list(items)
-    if not items:
-        return "_No updates_\n"
-    return "\n".join(items) + "\n"
+def _render_section(result: SectionResult, empty_message: str) -> str:
+    if result.entries:
+        return "\n".join(result.entries)
+    lines = [f"_{line}_" for line in result.filters] if result.filters else []
+    lines.append(empty_message)
+    return "\n".join(lines)
 
 
-def _collect_notes_and_decisions(root: Path, since: dt.datetime) -> List[str]:
+def _collect_completed(
+    merged_prs: Sequence[PullRequest],
+    closed_issues: Sequence[Issue],
+) -> SectionResult:
+    entries = [_format_pr(pr) for pr in merged_prs]
+    entries.extend(_format_issue(issue) for issue in closed_issues)
+    filters = ["Scope: merged pull requests and closed issues in the window"]
+    metadata = {
+        "issue_numbers": {issue.number for issue in closed_issues},
+        "pr_numbers": {pr.number for pr in merged_prs},
+    }
+    return SectionResult(entries=entries, filters=filters, metadata=metadata)
+
+
+def _collect_project_section(
+    owner: str,
+    repo: str,
+    client: GithubClient,
+    projects_client: Optional[ProjectsV2Client],
+    section_config: Dict[str, object],
+    fallback_status: str,
+) -> SectionResult:
+    section_config = section_config or {}
+    project_cfg = section_config.get("project_v2", {}) or {}
+    labels = section_config.get("labels", []) or []
+    filters: List[str] = []
+    issue_map: Dict[int, Issue] = {}
+
+    project_enabled = bool(project_cfg.get("enabled"))
+    project_name = project_cfg.get("project_name") or ""
+    status_field = project_cfg.get("status_field") or "Status"
+    status_values = project_cfg.get("status_values", [fallback_status])
+
+    if project_enabled:
+        filters.append(
+            f"Filters: Project '{project_name}' • {status_field} ∈ [{', '.join(status_values)}]"
+        )
+        if projects_client:
+            try:
+                project_items = projects_client.query_issues_with_status(
+                    owner,
+                    repo,
+                    project_name,
+                    status_field,
+                    status_values,
+                )
+            except Exception as exc:  # noqa: BLE001 - log and rely on fallback
+                LOGGER.warning(
+                    "Projects v2 query failed for %s (%s): %s",
+                    project_name,
+                    fallback_status,
+                    exc,
+                )
+                project_items = []
+            for item in project_items:
+                issue_map[item.number] = Issue(
+                    number=item.number,
+                    title=item.title,
+                    url=item.url,
+                    closed_at=None,
+                    assignees=item.assignees,
+                    labels=[],
+                    status=item.status or fallback_status,
+                )
+        else:
+            filters.append("Projects v2 lookup skipped (missing token)")
+    else:
+        filters.append("Projects v2 lookup disabled")
+
+    if not issue_map and labels:
+        for label in labels:
+            try:
+                for issue in client.list_open_issues_with_label(label):
+                    issue.status = issue.status or fallback_status
+                    issue_map.setdefault(issue.number, issue)
+            except Exception as exc:  # noqa: BLE001 - log and continue
+                LOGGER.warning("Label fallback failed for %s: %s", label, exc)
+        filters.append(
+            f"Scope: GitHub issues labeled {', '.join(labels)}"
+        )
+    elif project_enabled:
+        filters.append("Scope: GitHub issues via Projects v2 board")
+    elif labels:
+        filters.append(
+            f"Scope: GitHub issues labeled {', '.join(labels)}"
+        )
+    else:
+        filters.append("Scope: No project or label filters configured")
+
+    issues = sorted(issue_map.values(), key=lambda item: item.number)
+    entries = [_format_issue(issue, include_status=True) for issue in issues]
+    metadata = {"issue_status": {issue.number: issue.status or fallback_status for issue in issues}}
+    return SectionResult(entries=entries, filters=filters, metadata=metadata)
+
+
+def _extract_comment_markers(
+    comments: Iterable[dict],
+    markers: Sequence[str],
+    status_lookup: Dict[Tuple[str, int], str],
+    annotate_group: bool,
+    until: dt.datetime,
+) -> List[Tuple[dt.datetime, str]]:
+    results: List[Tuple[dt.datetime, str]] = []
+    markers = list(markers)
+    for comment in comments:
+        body = comment.get("body") or ""
+        if not body:
+            continue
+        updated = _parse_github_datetime(comment.get("updated_at") or comment.get("created_at"))
+        if not updated or updated > until:
+            continue
+        issue_url = comment.get("issue_url") or comment.get("pull_request_url")
+        if not issue_url:
+            continue
+        try:
+            number = int(issue_url.rsplit("/", 1)[-1])
+        except ValueError:
+            continue
+        item_type = "pull_request" if comment.get("pull_request_url") else "issue"
+        status = status_lookup.get((item_type, number)) or status_lookup.get(("issue", number))
+        marker_lines = []
+        for line in body.splitlines():
+            stripped = line.strip()
+            for marker in markers:
+                if stripped.startswith(marker):
+                    marker_lines.append((marker, stripped[len(marker):].strip()))
+        if not marker_lines:
+            continue
+        author = (comment.get("user") or {}).get("login")
+        url = comment.get("html_url")
+        for marker, detail in marker_lines:
+            marker_label = marker.rstrip(":")
+            if detail:
+                entry = f"- **{marker_label}:** {detail}"
+            else:
+                entry = f"- **{marker_label}**"
+            meta_parts: List[str] = []
+            if annotate_group and status:
+                meta_parts.append(status)
+            meta_parts.append(f"[#{number}]({url})" if url else f"#{number}")
+            if author:
+                meta_parts.append(f"@{author}")
+            meta_parts.append(updated.strftime("%Y-%m-%d"))
+            entry += " — " + " · ".join(meta_parts)
+            results.append((updated, entry))
+    return results
+
+
+def _collect_notes_section(
+    client: GithubClient,
+    notes_config: Dict[str, object],
+    status_lookup: Dict[Tuple[str, int], str],
+    since: dt.datetime,
+    until: dt.datetime,
+    root: Path,
+) -> SectionResult:
+    notes_config = notes_config or {}
+    markers = notes_config.get(
+        "comment_markers", ["Decision:", "Note:", "Blocker:", "Action:"]
+    )
+    scan_issue_comments = notes_config.get("scan_issue_comments", True)
+    scan_pr_comments = notes_config.get("scan_pr_comments", True)
+    annotate_group = notes_config.get("annotate_group", True)
+    filters = [
+        f"Markers: {', '.join(markers)}",
+    ]
+    scope_fragments = []
+    if scan_issue_comments:
+        scope_fragments.append("issues")
+    if scan_pr_comments:
+        scope_fragments.append("pull requests")
+    filters.append(
+        "Scope: comment bodies for " + (" & ".join(scope_fragments) if scope_fragments else "none")
+    )
+
+    entries: List[Tuple[dt.datetime, str]] = []
+    if markers:
+        if scan_issue_comments:
+            try:
+                issue_comments = client.list_issue_comments(since)
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning("Failed to fetch issue comments: %s", exc)
+                issue_comments = []
+            entries.extend(
+                _extract_comment_markers(
+                    issue_comments, markers, status_lookup, annotate_group, until
+                )
+            )
+        if scan_pr_comments:
+            try:
+                review_comments = client.list_review_comments(since)
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning("Failed to fetch PR review comments: %s", exc)
+                review_comments = []
+            entries.extend(
+                _extract_comment_markers(
+                    review_comments, markers, status_lookup, annotate_group, until
+                )
+            )
+    else:
+        LOGGER.debug("No markers configured for Notes & Decisions collector")
+
+    local_notes = _collect_local_notes(root, since)
+    jira_notes = _collect_jira_references(root, since)
+    note_entries = [item for _, item in sorted(entries, key=lambda pair: pair[0], reverse=True)]
+    note_entries.extend(local_notes)
+    note_entries.extend(jira_notes)
+    return SectionResult(entries=note_entries, filters=filters)
+
+
+def _collect_local_notes(root: Path, since: dt.datetime) -> List[str]:
     notes: List[str] = []
     adr_dirs = [
         root / "docs" / "adr",
@@ -277,12 +547,16 @@ def _collect_notes_and_decisions(root: Path, since: dt.datetime) -> List[str]:
     ]
     for adr_dir in adr_dirs:
         if adr_dir.exists():
-            for path in sorted(adr_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
+            for path in sorted(
+                adr_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True
+            ):
                 mtime = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.timezone.utc)
                 if mtime < since:
                     continue
                 rel = path.relative_to(root)
-                notes.append(f"- Updated ADR: [{path.stem}]({rel.as_posix()}) (modified {mtime.date()})")
+                notes.append(
+                    f"- Updated ADR: [{path.stem}]({rel.as_posix()}) (modified {mtime.date()})"
+                )
     return notes
 
 
@@ -292,27 +566,20 @@ def _collect_jira_references(root: Path, since: dt.datetime) -> List[str]:
     pattern = os.getenv("HISTORIAN_JIRA_REGEX", r"[A-Z]+-\d+")
     try:
         log_output = subprocess.check_output(
-            [
-                "git",
-                "log",
-                f"--since={since.isoformat()}",
-                "--pretty=%H %s",
-            ],
+            ["git", "log", f"--since={since.isoformat()}", "--pretty=%H %s"],
             cwd=root,
         ).decode()
     except subprocess.CalledProcessError:
         LOGGER.warning("Failed to collect git log for Jira enrichment")
         return []
     regex = re.compile(pattern)
-    references = {}
+    references: Dict[str, List[str]] = {}
     for line in log_output.splitlines():
         if not line:
             continue
         commit, _, message = line.partition(" ")
         for match in regex.findall(message):
             references.setdefault(match, []).append(commit)
-    if not references:
-        return []
     items = []
     for key, commits in sorted(references.items()):
         commit_list = ", ".join(commit[:7] for commit in commits[:5])
@@ -321,33 +588,141 @@ def _collect_jira_references(root: Path, since: dt.datetime) -> List[str]:
     return items
 
 
-def _load_artifacts(path: Optional[Path]) -> List[dict]:
-    if not path:
-        return []
-    if not path.exists():
-        LOGGER.warning("Artifact file %s does not exist", path)
-        return []
-    with path.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
-    return list(data.get("artifacts", []))
+def _collect_github_actions_artifacts(
+    client: GithubClient,
+    workflows: Sequence[str],
+    since: dt.datetime,
+    until: dt.datetime,
+) -> List[str]:
+    entries: List[str] = []
+    for workflow in workflows:
+        try:
+            runs = list(client.list_workflow_runs(workflow))
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("Failed to list workflow runs for %s: %s", workflow, exc)
+            continue
+        for run in runs:
+            created = _parse_github_datetime(run.get("created_at"))
+            if created and created < since:
+                break
+            if created and created > until:
+                continue
+            run_url = run.get("html_url")
+            run_number = run.get("run_number") or run.get("id")
+            try:
+                artifacts = client.list_run_artifacts(run.get("id"))
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning(
+                    "Failed to list artifacts for workflow %s run %s: %s",
+                    workflow,
+                    run_number,
+                    exc,
+                )
+                continue
+            for artifact in artifacts:
+                created_at = _parse_github_datetime(artifact.get("created_at"))
+                if created_at and created_at < since:
+                    continue
+                if created_at and created_at > until:
+                    continue
+                name = artifact.get("name", "artifact")
+                expired = artifact.get("expired")
+                download_url = artifact.get("archive_download_url")
+                expires_at = _parse_github_datetime(artifact.get("expires_at"))
+                status_parts = []
+                if not expired and download_url:
+                    status_parts.append(f"[download]({download_url})")
+                if expired:
+                    status_parts.append("expired")
+                elif expires_at:
+                    status_parts.append(f"expires {expires_at.date()}")
+                status_suffix = f" ({', '.join(status_parts)})" if status_parts else ""
+                entries.append(
+                    f"- Workflow `{workflow}` run [#{run_number}]({run_url}) → **{name}**{status_suffix}"
+                )
+    return entries
 
 
-def _render_artifacts(artifacts: List[dict], include_hash: bool) -> str:
-    if not artifacts:
-        return "_No artifacts recorded_\n"
-    lines = []
-    for artifact in artifacts:
-        name = artifact.get("name", "Artifact")
-        s3_key = artifact.get("s3_key") or artifact.get("path")
-        hash_value = artifact.get("hash") or artifact.get("sha256")
-        if s3_key:
-            entry = f"- **{name}** → `{s3_key}`"
-        else:
-            entry = f"- **{name}**"
-        if include_hash and hash_value:
-            entry += f" (sha256 `{hash_value}`)"
-        lines.append(entry)
-    return "\n".join(lines) + "\n"
+def _collect_s3_artifacts(
+    bucket: str,
+    prefixes: Sequence[str],
+    since: dt.datetime,
+    until: dt.datetime,
+) -> List[str]:
+    try:
+        import boto3
+    except ImportError as exc:  # pragma: no cover - boto3 should be available
+        LOGGER.warning("boto3 is required for S3 artifact collection: %s", exc)
+        return []
+
+    client = boto3.client("s3")
+    entries: List[str] = []
+    for prefix in prefixes:
+        continuation_token: Optional[str] = None
+        while True:
+            kwargs = {
+                "Bucket": bucket,
+                "Prefix": prefix,
+                "MaxKeys": 1000,
+            }
+            if continuation_token:
+                kwargs["ContinuationToken"] = continuation_token
+            response = client.list_objects_v2(**kwargs)
+            for obj in response.get("Contents", []):
+                last_modified = obj.get("LastModified")
+                if last_modified:
+                    last_modified = last_modified.astimezone(dt.timezone.utc)
+                    if last_modified < since or last_modified > until:
+                        continue
+                key = obj.get("Key")
+                size = obj.get("Size")
+                entries.append(
+                    f"- S3 `{bucket}` → `{key}` ({size} bytes, updated {last_modified.date() if last_modified else 'unknown'})"
+                )
+            if not response.get("IsTruncated"):
+                break
+            continuation_token = response.get("NextContinuationToken")
+    return entries
+
+
+def _collect_artifacts_section(
+    client: GithubClient,
+    artifacts_config: Dict[str, object],
+    since: dt.datetime,
+    until: dt.datetime,
+) -> SectionResult:
+    artifacts_config = artifacts_config or {}
+    filters: List[str] = []
+    entries: List[str] = []
+
+    gha_cfg = artifacts_config.get("github_actions", {}) or {}
+    if gha_cfg.get("enabled"):
+        workflows = gha_cfg.get("workflows", [])
+        filters.append(
+            "GitHub Actions workflows: " + (", ".join(workflows) if workflows else "all")
+        )
+        entries.extend(
+            _collect_github_actions_artifacts(client, workflows, since, until)
+        )
+    else:
+        filters.append("GitHub Actions workflows: disabled")
+
+    s3_cfg = artifacts_config.get("s3", {}) or {}
+    bucket = s3_cfg.get("bucket")
+    prefixes = s3_cfg.get("prefixes", [])
+    if s3_cfg.get("enabled") and bucket and prefixes:
+        filters.append(
+            f"S3 prefixes: s3://{bucket}/" + ", s3://{bucket}/".join(prefixes)
+        )
+        entries.extend(_collect_s3_artifacts(bucket, prefixes, since, until))
+    elif bucket and prefixes:
+        filters.append(
+            f"S3 prefixes: s3://{bucket}/" + ", s3://{bucket}/".join(prefixes) + " (disabled)"
+        )
+    else:
+        filters.append("S3 prefixes: disabled")
+
+    return SectionResult(entries=entries, filters=filters)
 
 
 def _ensure_history_index(
@@ -355,20 +730,14 @@ def _ensure_history_index(
     checkin_path: Path,
     since: dt.datetime,
     until: dt.datetime,
-    completed_count: int,
-    in_progress_count: int,
-    upcoming_count: int,
+    counts: Dict[str, int],
 ) -> None:
     entry = {
         "date": until.date().isoformat(),
         "file": checkin_path.as_posix(),
         "since": since.isoformat(),
         "until": until.isoformat(),
-        "counts": {
-            "completed": completed_count,
-            "in_progress": in_progress_count,
-            "upcoming": upcoming_count,
-        },
+        "counts": counts,
     }
     if index_path.exists():
         with index_path.open("r", encoding="utf-8") as handle:
@@ -395,6 +764,17 @@ def render_history(args: argparse.Namespace) -> HistoryDocument:
 
     LOGGER.info("Generating history for %s since %s", repo, since.isoformat())
     client = GithubClient(repo, token)
+    owner, _, name = repo.partition("/")
+    if not owner or not name:
+        raise ValueError(f"Invalid repository '{repo}'. Expected owner/name format.")
+
+    root = Path(args.root).resolve()
+    config = _load_historian_config(args.config, root)
+    sources = config.get("sources", {})
+    in_progress_cfg = sources.get("in_progress", {})
+    backlog_cfg = sources.get("backlog", {})
+    notes_cfg = sources.get("notes", {})
+    artifacts_cfg = sources.get("artifacts", {})
 
     try:
         closed_issues = client.list_closed_issues(since)
@@ -403,47 +783,63 @@ def render_history(args: argparse.Namespace) -> HistoryDocument:
         closed_issues = []
     try:
         merged_prs = client.list_merged_prs(since)
-    except Exception as exc:  # noqa: BLE001 - surface to logs and continue
+    except Exception as exc:  # noqa: BLE001
         LOGGER.warning("Failed to fetch merged PRs: %s", exc)
         merged_prs = []
+
+    completed_result = _collect_completed(merged_prs, closed_issues)
+
+    projects_client: Optional[ProjectsV2Client] = None
     try:
-        in_progress = client.list_open_issues_with_label(args.in_progress_label)
-    except Exception as exc:  # noqa: BLE001 - surface to logs and continue
-        LOGGER.warning("Failed to fetch in-progress issues: %s", exc)
-        in_progress = []
-    try:
-        upcoming = client.list_open_issues_with_label(args.upcoming_label)
-    except Exception as exc:  # noqa: BLE001 - surface to logs and continue
-        LOGGER.warning("Failed to fetch upcoming issues: %s", exc)
-        upcoming = []
+        if token and (
+            (in_progress_cfg.get("project_v2", {}).get("enabled"))
+            or (backlog_cfg.get("project_v2", {}).get("enabled"))
+        ):
+            projects_client = ProjectsV2Client(token)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("Failed to initialize Projects v2 client: %s", exc)
 
-    root = Path(args.root).resolve()
-    notes = _collect_notes_and_decisions(root, since)
-    notes.extend(_collect_jira_references(root, since))
+    in_progress_result = _collect_project_section(
+        owner,
+        name,
+        client,
+        projects_client,
+        in_progress_cfg,
+        fallback_status="In Progress",
+    )
+    backlog_result = _collect_project_section(
+        owner,
+        name,
+        client,
+        projects_client,
+        backlog_cfg,
+        fallback_status="Backlog",
+    )
 
-    artifacts_enabled = args.enable_s3_artifacts or os.getenv(
-        "HISTORIAN_ENABLE_S3_ARTIFACTS", "false"
-    ).lower() == "true"
-    artifacts: List[dict] = []
-    if artifacts_enabled:
-        artifacts_path = args.artifacts_file
-        if not artifacts_path and (env_artifact := os.getenv("HISTORIAN_ARTIFACTS_FILE")):
-            artifacts_path = Path(env_artifact)
-        artifacts = _load_artifacts(artifacts_path)
-    include_hash = args.include_hash or os.getenv("HISTORIAN_ENABLE_HASH", "false").lower() == "true"
-    artifacts_section = _render_artifacts(artifacts, include_hash)
+    status_lookup: Dict[Tuple[str, int], str] = {}
+    status_lookup.update({("issue", num): "Completed" for num in completed_result.metadata.get("issue_numbers", set())})
+    status_lookup.update({("pull_request", num): "Completed" for num in completed_result.metadata.get("pr_numbers", set())})
+    for number, status in in_progress_result.metadata.get("issue_status", {}).items():
+        status_lookup[("issue", number)] = status or "In Progress"
+    for number, status in backlog_result.metadata.get("issue_status", {}).items():
+        status_lookup[("issue", number)] = status or "Backlog"
 
-    completed_items = [_format_pr(pr) for pr in merged_prs] + [
-        _format_issue(issue) for issue in closed_issues
-    ]
-    completed_section = _format_section(completed_items)
-    in_progress_section = _format_section(_format_issue(issue) for issue in in_progress)
-    upcoming_section = _format_section(_format_issue(issue) for issue in upcoming)
-    notes_section = _format_section(notes)
+    notes_result = _collect_notes_section(
+        client,
+        notes_cfg,
+        status_lookup,
+        since,
+        until,
+        root,
+    )
+    artifacts_result = _collect_artifacts_section(
+        client,
+        artifacts_cfg,
+        since,
+        until,
+    )
 
-    template_path = args.template
-    if not template_path:
-        template_path = root / "docs" / "history" / "HISTORY_TEMPLATE.md"
+    template_path = args.template or root / "docs" / "history" / "HISTORY_TEMPLATE.md"
     with open(template_path, "r", encoding="utf-8") as handle:
         template = handle.read()
 
@@ -451,57 +847,70 @@ def render_history(args: argparse.Namespace) -> HistoryDocument:
         "date": until.date().isoformat(),
         "since": since.date().isoformat(),
         "until": until.date().isoformat(),
-        "completed": completed_section.strip() or "_No updates_",
-        "in_progress": in_progress_section.strip() or "_No updates_",
-        "upcoming": upcoming_section.strip() or "_No updates_",
-        "notes": notes_section.strip() or "_No updates_",
-        "artifacts": artifacts_section.strip() or "_No artifacts recorded_",
+        "completed": _render_section(
+            completed_result, "_No completed work in this window_"
+        ),
+        "in_progress": _render_section(
+            in_progress_result,
+            "_No matching in-progress issues (see filters above)_",
+        ),
+        "backlog": _render_section(
+            backlog_result, "_No matching backlog issues (see filters above)_"
+        ),
+        "notes": _render_section(
+            notes_result,
+            "_No decision markers captured in this window_",
+        ),
+        "artifacts": _render_section(
+            artifacts_result, "_No artifacts captured in this window_"
+        ),
+        "completed_count": str(completed_result.count),
+        "in_progress_count": str(in_progress_result.count),
+        "backlog_count": str(backlog_result.count),
+        "notes_count": str(notes_result.count),
+        "artifacts_count": str(artifacts_result.count),
     }
 
     for key, value in context.items():
         placeholder = "{{" + key + "}}"
         template = template.replace(placeholder, value)
 
-    return HistoryDocument(
-        markdown=template,
-        since=since,
-        until=until,
-        completed_count=len(merged_prs) + len(closed_issues),
-        in_progress_count=len(in_progress),
-        upcoming_count=len(upcoming),
-    )
+    counts = {
+        "completed": completed_result.count,
+        "in_progress": in_progress_result.count,
+        "backlog": backlog_result.count,
+        "notes": notes_result.count,
+        "artifacts": artifacts_result.count,
+    }
+    return HistoryDocument(markdown=template, since=since, until=until, counts=counts)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate Git Historian check-in")
-    parser.add_argument("--since", default="7d", help="Time window start (e.g. 7d, 24h, or ISO timestamp)")
-    parser.add_argument("--output", default="docs/history", help="Directory to write the Markdown check-in")
+    parser.add_argument(
+        "--since",
+        default="7d",
+        help="Time window start (e.g. 7d, 24h, or ISO timestamp)",
+    )
+    parser.add_argument(
+        "--output",
+        default="docs/history",
+        help="Directory to write the Markdown check-in",
+    )
     parser.add_argument("--repo", help="owner/name repository override")
     parser.add_argument("--token", help="GitHub API token (defaults to GITHUB_TOKEN)")
     parser.add_argument("--template", type=Path, help="Path to custom template")
-    parser.add_argument("--artifacts-file", type=Path, help="JSON file describing artifacts")
-    parser.add_argument("--include-hash", action="store_true", help="Include sha256 hashes in artifact output")
-    parser.add_argument("--dry-run", action="store_true", help="Print the generated Markdown without writing")
+    parser.add_argument("--config", type=Path, help="Path to historian YAML configuration")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the generated Markdown without writing",
+    )
     parser.add_argument("--log-level", default="INFO", help="Logging level")
     parser.add_argument(
         "--root",
         default=".",
         help="Repository root (defaults to current directory)",
-    )
-    parser.add_argument(
-        "--in-progress-label",
-        default="in-progress",
-        help="Label used to identify in-progress issues",
-    )
-    parser.add_argument(
-        "--upcoming-label",
-        default="next-up",
-        help="Label used to identify upcoming issues",
-    )
-    parser.add_argument(
-        "--enable-s3-artifacts",
-        action="store_true",
-        help="Force-enable artifact rendering regardless of env flag",
     )
 
     args = parser.parse_args()
@@ -526,15 +935,7 @@ def main() -> None:
         relative_output = output_path.resolve().relative_to(root_path)
     except ValueError:
         relative_output = output_path.resolve()
-    _ensure_history_index(
-        index_path,
-        relative_output,
-        document.since,
-        document.until,
-        document.completed_count,
-        document.in_progress_count,
-        document.upcoming_count,
-    )
+    _ensure_history_index(index_path, relative_output, document.since, document.until, document.counts)
 
 
 if __name__ == "__main__":
