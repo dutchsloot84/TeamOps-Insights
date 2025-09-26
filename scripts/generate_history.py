@@ -11,12 +11,18 @@ import logging
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import requests
 import yaml
+
+# Path safeguard for local/CI runs when PYTHONPATH is unset.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.github import ProjectsV2Client
 

@@ -21,7 +21,8 @@ pip install -r requirements.txt
 
 # Generate a history snapshot from the last 7 days
 export GITHUB_TOKEN=<your-token>
-python scripts/generate_history.py --since 7d --output docs/history
+export PYTHONPATH=$(pwd)
+python -m scripts.generate_history --since 7d --until now --output docs/history
 ```
 
 * The script creates `docs/history/YYYY-MM-DD-checkin.md` using [`docs/history/HISTORY_TEMPLATE.md`](history/HISTORY_TEMPLATE.md).
@@ -29,6 +30,7 @@ python scripts/generate_history.py --since 7d --output docs/history
 * Use `--until now` (default) or a specific ISO timestamp (`2025-01-15`) to cap the window end.
 * Use `--repo owner/name` to override automatic repository detection.
 * Use `--config <path>` to load a different historian configuration (defaults to `config/defaults.yml`).
+* **Tip:** If you see `ModuleNotFoundError: No module named 'scripts'`, confirm you are running from the repository root and that `PYTHONPATH` includes the root (e.g., `export PYTHONPATH=$(pwd)`).
 
 ### Collector overview
 
@@ -53,7 +55,7 @@ and can also be triggered manually (`workflow_dispatch`). It performs the follow
 2. Lint the GitHub workflow definitions with [`reviewdog/action-actionlint`](https://github.com/reviewdog/action-actionlint)
    pinned to commit `93dc1f9bc10856298b6cc1a3b3239cfbbb87fe4b` (release `v1.67.0`) and `fail_level: error`
    so any detected issues fail fast.
-3. Run `python scripts/generate_history.py --since 7d --output docs/history`.
+3. Run `PYTHONPATH=$(pwd) python -m scripts.generate_history --since 7d --until now --output docs/history`.
 4. Commit changes in `docs/history/*.md` on a branch named `auto/history-<date>`.
 5. Open a pull request summarizing the update.
 
