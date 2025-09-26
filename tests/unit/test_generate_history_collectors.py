@@ -286,3 +286,44 @@ def test_notes_mirroring_writes_deduplicated_files(
 
     content_after = note_path.read_text(encoding="utf-8")
     assert content_after.count("View comment") == 1
+
+
+def test_parse_until_now_defaults_to_current(monkeypatch: pytest.MonkeyPatch) -> None:
+    fixed_now = dt.datetime(2024, 1, 10, tzinfo=dt.timezone.utc)
+
+    class FixedDateTime(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            if tz is None:
+                return fixed_now.replace(tzinfo=None)
+            return fixed_now.astimezone(tz)
+
+    monkeypatch.setattr(generate_history.dt, "datetime", FixedDateTime)
+
+    result = generate_history._parse_until("now")  # type: ignore[attr-defined]
+    assert result == fixed_now
+
+
+def test_parse_until_iso_date() -> None:
+    result = generate_history._parse_until("2024-01-05")  # type: ignore[attr-defined]
+    assert result == dt.datetime(2024, 1, 5, tzinfo=dt.timezone.utc)
+
+
+def test_parse_until_invalid_value() -> None:
+    with pytest.raises(ValueError):
+        generate_history._parse_until("later")  # type: ignore[attr-defined]
+
+
+def test_validate_window_disallows_inverted_range() -> None:
+    since = dt.datetime(2024, 1, 2, tzinfo=dt.timezone.utc)
+    until = dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc)
+
+    with pytest.raises(ValueError):
+        generate_history._validate_window(since, until)  # type: ignore[attr-defined]
+
+
+def test_build_parser_accepts_until_argument() -> None:
+    parser = generate_history._build_parser()  # type: ignore[attr-defined]
+    args = parser.parse_args(["--since", "10d", "--until", "now"])
+
+    assert args.until == "now"

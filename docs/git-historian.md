@@ -26,6 +26,7 @@ python scripts/generate_history.py --since 7d --output docs/history
 
 * The script creates `docs/history/YYYY-MM-DD-checkin.md` using [`docs/history/HISTORY_TEMPLATE.md`](history/HISTORY_TEMPLATE.md).
 * Use `--since` with ISO timestamps (`2025-01-01T00:00:00Z`) or relative windows (`14d`, `48h`).
+* Use `--until now` (default) or a specific ISO timestamp (`2025-01-15`) to cap the window end.
 * Use `--repo owner/name` to override automatic repository detection.
 * Use `--config <path>` to load a different historian configuration (defaults to `config/defaults.yml`).
 

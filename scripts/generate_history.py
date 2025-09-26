@@ -134,7 +134,7 @@ class GithubClient:
             else:
                 break
 
-    def list_closed_issues(self, since: dt.datetime) -> List[Issue]:
+    def list_closed_issues(self, since: dt.datetime, until: dt.datetime) -> List[Issue]:
         params = {
             "state": "closed",
             "since": since.strftime(ISO_FORMAT),
@@ -148,6 +148,8 @@ class GithubClient:
                 continue
             closed_at = _parse_github_datetime(data.get("closed_at"))
             if closed_at and closed_at < since:
+                continue
+            if closed_at and closed_at > until:
                 continue
             issue = Issue(
                 number=data["number"],
@@ -183,7 +185,7 @@ class GithubClient:
             results.append(issue)
         return results
 
-    def list_merged_prs(self, since: dt.datetime) -> List[PullRequest]:
+    def list_merged_prs(self, since: dt.datetime, until: dt.datetime) -> List[PullRequest]:
         params = {
             "state": "closed",
             "per_page": 100,
@@ -196,6 +198,8 @@ class GithubClient:
             updated_at = _parse_github_datetime(data.get("updated_at"))
             if updated_at and updated_at < since:
                 break
+            if merged_at and merged_at > until:
+                continue
             if not merged_at or merged_at < since:
                 continue
             pr = PullRequest(
@@ -278,6 +282,34 @@ def _parse_since(value: str) -> dt.datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return parsed.astimezone(dt.timezone.utc)
+
+
+def _parse_until(value: Optional[str]) -> dt.datetime:
+    """Parse --until values accepting ISO timestamps or the literal 'now'."""
+
+    if value is None:
+        value = "now"
+
+    value = value.strip()
+    if not value or value.lower() == "now":
+        return dt.datetime.now(dt.timezone.utc)
+
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(
+            "Unable to parse --until value. Use 'now' or an ISO timestamp (e.g. "
+            "2024-12-31T00:00:00Z)."
+        ) from exc
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def _validate_window(since: dt.datetime, until: dt.datetime) -> None:
+    if since > until:
+        raise ValueError("--since must be earlier than or equal to --until")
 
 
 def _parse_github_datetime(value: Optional[str]) -> Optional[dt.datetime]:
@@ -969,9 +1001,15 @@ def render_history(args: argparse.Namespace) -> HistoryDocument:
     repo = _determine_repo(args.repo)
     token = args.token or os.getenv("GITHUB_TOKEN")
     since = _parse_since(args.since)
-    until = dt.datetime.now(dt.timezone.utc)
+    until = _parse_until(getattr(args, "until", None))
+    _validate_window(since, until)
 
-    LOGGER.info("Generating history for %s since %s", repo, since.isoformat())
+    LOGGER.info(
+        "Generating history for %s since %s until %s",
+        repo,
+        since.isoformat(),
+        until.isoformat(),
+    )
     client = GithubClient(repo, token)
     owner, _, name = repo.partition("/")
     if not owner or not name:
@@ -987,12 +1025,12 @@ def render_history(args: argparse.Namespace) -> HistoryDocument:
     artifacts_cfg = sources.get("artifacts", {})
 
     try:
-        closed_issues = client.list_closed_issues(since)
+        closed_issues = client.list_closed_issues(since, until)
     except Exception as exc:  # noqa: BLE001 - surface to logs and continue
         LOGGER.warning("Failed to fetch closed issues: %s", exc)
         closed_issues = []
     try:
-        merged_prs = client.list_merged_prs(since)
+        merged_prs = client.list_merged_prs(since, until)
     except Exception as exc:  # noqa: BLE001
         LOGGER.warning("Failed to fetch merged PRs: %s", exc)
         merged_prs = []
@@ -1097,12 +1135,16 @@ def render_history(args: argparse.Namespace) -> HistoryDocument:
     return HistoryDocument(markdown=template, since=since, until=until, counts=counts)
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate Git Historian check-in")
     parser.add_argument(
         "--since",
         default="7d",
         help="Time window start (e.g. 7d, 24h, or ISO timestamp)",
+    )
+    parser.add_argument(
+        "--until",
+        help="Time window end (ISO timestamp or 'now'; defaults to now)",
     )
     parser.add_argument(
         "--output",
@@ -1125,6 +1167,11 @@ def main() -> None:
         help="Repository root (defaults to current directory)",
     )
 
+    return parser
+
+
+def main() -> None:
+    parser = _build_parser()
     args = parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
 
