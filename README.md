@@ -2,6 +2,10 @@
 
 Releasecopilot AI automates release audits by correlating Jira stories with Bitbucket commits and exporting structured reports. The project ships with a modular Python codebase, Docker packaging, and AWS primitives for Lambda or container-based execution.
 
+> **Weekly Git Historian:** Our scheduled [`weekly-history`](.github/workflows/weekly-history.yml) workflow lints the repository's
+> GitHub Actions definitions with `actionlint` and publishes momentum snapshots every Monday at 14:00 UTC. Trigger it manually
+> from the **Actions** tab to generate an on-demand report.
+
 ## Features
 
 - Fetch Jira issues for a given fix version using OAuth 3LO tokens.

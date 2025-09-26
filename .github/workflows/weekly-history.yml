@@ -13,10 +13,14 @@ on:
         description: 'Optional alternative template path'
         required: false
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   history:
     name: Generate history snapshot
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       pull-requests: write
@@ -27,7 +31,12 @@ jobs:
           fetch-depth: 0
 
       - name: Lint workflow files
-        uses: rhysd/actionlint@v1
+        uses: reviewdog/action-actionlint@93dc1f9bc10856298b6cc1a3b3239cfbbb87fe4b # v1.67.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          reporter: github-check
+          filter_mode: nofilter
+          fail_on_error: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
