@@ -264,6 +264,11 @@ def _parse_since(value: str) -> dt.datetime:
     value = value.strip()
     now = dt.datetime.now(dt.timezone.utc)
 
+    if value.isdigit():
+        raise ValueError(
+            f"Invalid --since value '{value}'. Did you mean '{value}d'?"
+        )
+
     if value.endswith("d") and value[:-1].isdigit():
         days = int(value[:-1])
         return now - dt.timedelta(days=days)
@@ -1140,7 +1145,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--since",
         default="7d",
-        help="Time window start (e.g. 7d, 24h, or ISO timestamp)",
+        help=(
+            "Relative format like '7d'/'24h' or ISO timestamp "
+            "(YYYY-MM-DDTHH:MM:SSZ)"
+        ),
     )
     parser.add_argument(
         "--until",

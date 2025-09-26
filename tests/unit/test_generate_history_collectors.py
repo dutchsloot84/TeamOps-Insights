@@ -288,6 +288,53 @@ def test_notes_mirroring_writes_deduplicated_files(
     assert content_after.count("View comment") == 1
 
 
+def test_parse_since_relative_days(monkeypatch: pytest.MonkeyPatch) -> None:
+    fixed_now = dt.datetime(2024, 1, 10, tzinfo=dt.timezone.utc)
+
+    class FixedDateTime(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            if tz is None:
+                return fixed_now.replace(tzinfo=None)
+            return fixed_now.astimezone(tz)
+
+    monkeypatch.setattr(generate_history.dt, "datetime", FixedDateTime)
+
+    result = generate_history._parse_since("7d")  # type: ignore[attr-defined]
+
+    assert result == fixed_now - dt.timedelta(days=7)
+
+
+def test_parse_since_relative_hours(monkeypatch: pytest.MonkeyPatch) -> None:
+    fixed_now = dt.datetime(2024, 1, 10, 12, tzinfo=dt.timezone.utc)
+
+    class FixedDateTime(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            if tz is None:
+                return fixed_now.replace(tzinfo=None)
+            return fixed_now.astimezone(tz)
+
+    monkeypatch.setattr(generate_history.dt, "datetime", FixedDateTime)
+
+    result = generate_history._parse_since("24h")  # type: ignore[attr-defined]
+
+    assert result == fixed_now - dt.timedelta(hours=24)
+
+
+def test_parse_since_iso_timestamp() -> None:
+    result = generate_history._parse_since("2024-12-31T00:00:00Z")  # type: ignore[attr-defined]
+
+    assert result == dt.datetime(2024, 12, 31, tzinfo=dt.timezone.utc)
+
+
+def test_parse_since_rejects_numeric_only() -> None:
+    with pytest.raises(ValueError) as excinfo:
+        generate_history._parse_since("10")  # type: ignore[attr-defined]
+
+    assert "Did you mean '10d'" in str(excinfo.value)
+
+
 def test_parse_until_now_defaults_to_current(monkeypatch: pytest.MonkeyPatch) -> None:
     fixed_now = dt.datetime(2024, 1, 10, tzinfo=dt.timezone.utc)
 

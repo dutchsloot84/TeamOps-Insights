@@ -24,7 +24,7 @@ jobs:
 
       - name: Run Historian (collect + mirror)
         run: |
-          python -m scripts.generate_history --since 10 --until now
+          python -m scripts.generate_history --since "${SINCE_INPUT:-7d}" --until now
         env:
           PYTHONPATH: ${{ github.workspace }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
