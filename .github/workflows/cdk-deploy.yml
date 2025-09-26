@@ -41,12 +41,12 @@ jobs:
         run: cdk bootstrap
       - name: Deploy core stack
         working-directory: cdk
-        run: cdk deploy ${PROJECT_NAME:-releasecopilot-ai}-core --require-approval never
+        run: cdk deploy "${PROJECT_NAME:-releasecopilot-ai}-core" --require-approval never
       - name: Deploy lambda stack
         working-directory: cdk
         run: |
           if [ "${{ github.event.inputs.enable_schedule }}" = "1" ]; then
-            ENABLE_EVENTBRIDGE=1 cdk deploy ${PROJECT_NAME:-releasecopilot-ai}-lambda --require-approval never
+            ENABLE_EVENTBRIDGE=1 cdk deploy "${PROJECT_NAME:-releasecopilot-ai}-lambda" --require-approval never
           else
-            cdk deploy ${PROJECT_NAME:-releasecopilot-ai}-lambda --require-approval never
+            cdk deploy "${PROJECT_NAME:-releasecopilot-ai}-lambda" --require-approval never
           fi

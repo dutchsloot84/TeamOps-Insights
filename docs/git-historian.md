@@ -56,7 +56,8 @@ and can also be triggered manually (`workflow_dispatch`). It performs the follow
 
 1. Check out the repository.
 2. Lint the GitHub workflow definitions with [`reviewdog/action-actionlint`](https://github.com/reviewdog/action-actionlint)
-   pinned to commit `93dc1f9bc10856298b6cc1a3b3239cfbbb87fe4b` (release `v1.67.0`).
+   pinned to commit `93dc1f9bc10856298b6cc1a3b3239cfbbb87fe4b` (release `v1.67.0`) and `fail_level: error`
+   so any detected issues fail fast.
 3. Run `python scripts/generate_history.py --since 7d --output docs/history`.
 4. Commit changes in `docs/history/*.md` on a branch named `auto/history-<date>`.
 5. Open a pull request summarizing the update.

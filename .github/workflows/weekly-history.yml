@@ -36,7 +36,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           reporter: github-check
           filter_mode: nofilter
-          fail_on_error: true
+          fail_level: error
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -58,11 +58,11 @@ jobs:
           TEMPLATE_INPUT: ${{ inputs.template }}
         run: |
           SINCE_VALUE="${SINCE_INPUT:-7d}"
-          TEMPLATE_ARG=""
           if [ -n "$TEMPLATE_INPUT" ]; then
-            TEMPLATE_ARG="--template $TEMPLATE_INPUT"
+            python scripts/generate_history.py --since "$SINCE_VALUE" --output docs/history --template "$TEMPLATE_INPUT"
+          else
+            python scripts/generate_history.py --since "$SINCE_VALUE" --output docs/history
           fi
-          python scripts/generate_history.py --since "$SINCE_VALUE" --output docs/history $TEMPLATE_ARG
 
       - name: Check for changes
         id: changes
