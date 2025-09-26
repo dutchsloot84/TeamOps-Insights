@@ -13,6 +13,10 @@ on:
         description: 'Optional alternative template path'
         required: false
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   history:
     name: Generate history snapshot
