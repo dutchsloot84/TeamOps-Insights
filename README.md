@@ -240,7 +240,8 @@ Production buckets are retained by default; set `"retainBucket": false` in non-p
 - `data/<prefix>.json` – Structured audit report.
 - `data/<prefix>.xlsx` – Multi-tab Excel workbook with summary, gaps, and mapping.
 
-Artifacts are also uploaded to S3 when `--upload-s3` is supplied.
+Artifacts are automatically uploaded to Amazon S3 whenever a bucket is configured via `--s3-bucket` (or the corresponding
+configuration/env setting). Use `--s3-prefix` to control the destination prefix.
 
 ## Docker Compose
 
