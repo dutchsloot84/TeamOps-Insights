@@ -1,0 +1,646 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.39">
+    
+    
+      
+        <title>CI/CD Workflow Notes - releasecopilot-ai</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.8c3ca2c6.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#cicd-workflow-notes" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="releasecopilot-ai" class="md-header__button md-logo" aria-label="releasecopilot-ai" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            releasecopilot-ai
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              CI/CD Workflow Notes
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="releasecopilot-ai" class="md-nav__button md-logo" aria-label="releasecopilot-ai" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    releasecopilot-ai
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Architecture
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Architecture
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Overview
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/system-context/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    System Context
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/components/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Components
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/data-flow/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Data Flow
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/deployment-aws/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    AWS Deployment
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/agents/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Agents
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Deployment
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent_research/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Agent Research
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../git-historian/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Git Historian
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      Workflow overview
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oidc-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      OIDC setup
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#required-secrets-and-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      Required secrets and variables
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manual-workflow-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Manual workflow runs
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-smoke-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      Local smoke tests
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#guardrails" class="md-nav__link">
+    <span class="md-ellipsis">
+      Guardrails
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ci-quick-runbook" class="md-nav__link">
+    <span class="md-ellipsis">
+      CI Quick Runbook
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+<h1 id="cicd-workflow-notes">CI/CD Workflow Notes<a class="headerlink" href="#cicd-workflow-notes" title="Permanent link">&para;</a></h1>
+<h2 id="workflow-overview">Workflow overview<a class="headerlink" href="#workflow-overview" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Workflow file</strong>: <code>.github/workflows/ci.yml</code></li>
+<li><strong>Triggers</strong>:</li>
+<li>Pushes to <code>main</code>, <code>feature/**</code>, and <code>codex/**</code></li>
+<li>Pull requests targeting <code>main</code></li>
+<li>Tags that match <code>v*.*.*</code></li>
+<li>Manual <code>workflow_dispatch</code> with inputs <code>run_uploader</code> (boolean) and <code>fix_version</code> (string)</li>
+<li><strong>Jobs</strong>:</li>
+<li><code>python-checks</code> – always runs, installs dependencies, lints with <code>ruff check .</code> (soft fail), and executes <code>pytest -q</code>.</li>
+<li><code>package</code> – builds <code>dist/lambda_bundle.zip</code>, verifies the archive is non-empty, and uploads it for PRs and pushes (longer retention when run from a tag).</li>
+<li><code>cdk-synth</code> – creates a Python virtualenv, installs CDK dependencies, installs AWS CDK v2, and runs <code>cdk synth</code> from <code>infra/cdk</code>.</li>
+<li><code>optional-uploader</code> – runs only for manual <code>workflow_dispatch</code> events where <code>run_uploader</code> is <code>true</code>; conditionally configures AWS credentials via OIDC and invokes the ReleaseCopilot uploader CLI.</li>
+</ul>
+<h2 id="oidc-setup">OIDC setup<a class="headerlink" href="#oidc-setup" title="Permanent link">&para;</a></h2>
+<ol>
+<li>In AWS IAM, create (or update) a role that trusts your GitHub organisation/repository using the OpenID Connect provider <code>token.actions.githubusercontent.com</code>.</li>
+<li>Attach the least-privilege permissions required to upload the Lambda bundle to your target S3 bucket.</li>
+<li>Save the role ARN as the repository secret <code>AWS_ROLE_TO_ASSUME</code>.</li>
+<li>Ensure the workflow has <code>permissions: { contents: read, id-token: write }</code> whenever OIDC is needed (already configured in <code>optional-uploader</code>).</li>
+</ol>
+<h2 id="required-secrets-and-variables">Required secrets and variables<a class="headerlink" href="#required-secrets-and-variables" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>AWS_ROLE_TO_ASSUME</code> (secret, optional) – enables the OIDC credential flow for the uploader job.</li>
+<li><code>RC_S3_BUCKET</code> (secret) – destination bucket for manual uploads; when absent the uploader logs and exits gracefully.</li>
+<li><code>AWS_REGION</code> (repository or organisation variable) – defaults to <code>us-west-2</code> when unset.</li>
+</ul>
+<h2 id="manual-workflow-runs">Manual workflow runs<a class="headerlink" href="#manual-workflow-runs" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Open the <strong>CI</strong> workflow in the GitHub Actions tab and select <strong>Run workflow</strong>.</li>
+<li>Choose the target branch/tag and optionally enable <code>run_uploader</code>.</li>
+<li>Provide <code>fix_version</code> if you want to override the detected version (otherwise tag names or the current date are used).</li>
+<li>When <code>run_uploader</code> is enabled, the workflow:</li>
+<li>Ensures the Lambda bundle has been built by the <code>package</code> job.</li>
+<li>Configures AWS credentials via OIDC when <code>AWS_ROLE_TO_ASSUME</code> is present.</li>
+<li>Invokes <code>python -m releasecopilot.cli</code> with <code>--s3-prefix releasecopilot</code>, uploading into <code>s3://$RC_S3_BUCKET/releasecopilot/</code>.</li>
+<li>Skips gracefully when the bucket secret is not provided.</li>
+</ol>
+<h2 id="local-smoke-tests">Local smoke tests<a class="headerlink" href="#local-smoke-tests" title="Permanent link">&para;</a></h2>
+<p>Run these commands before pushing to verify the core CI checks locally:
+- <code>ruff check .</code>
+- <code>pytest -q</code>
+- <code>python scripts/package_lambda.py --out dist/lambda_bundle.zip</code> (or <code>bash scripts/package_lambda.sh</code> if the Python helper is unavailable)
+- <code>cd infra/cdk &amp;&amp; cdk synth</code></p>
+<h2 id="guardrails">Guardrails<a class="headerlink" href="#guardrails" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Never place <code>secrets.*</code> references inside <code>if:</code> expressions. Read them into environment variables first and gate subsequent steps with <code>env.*</code>.</li>
+<li>Keep at least one job unconditional so pull requests and pushes always produce CI feedback.</li>
+</ul>
+<h2 id="ci-quick-runbook">CI Quick Runbook<a class="headerlink" href="#ci-quick-runbook" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>ruff<span class="w"> </span>check<span class="w"> </span>.
+pytest<span class="w"> </span>-q
+python<span class="w"> </span>scripts/package_lambda.py<span class="w"> </span>--out<span class="w"> </span>dist/lambda_bundle.zip
+<span class="nb">cd</span><span class="w"> </span>infra/cdk<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>cdk<span class="w"> </span>synth
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "..", "features": [], "search": "../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.525ec568.min.js"></script>
+      
+        <script src="https://unpkg.com/mermaid@10/dist/mermaid.min.js"></script>
+      
+    
+  </body>
+</html>
