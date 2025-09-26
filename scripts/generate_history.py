@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import logging
 import os
@@ -60,6 +61,22 @@ class SectionResult:
     @property
     def count(self) -> int:
         return len(self.entries)
+
+
+@dataclass
+class NoteMarker:
+    """Structured representation of a decision marker discovered in comments."""
+
+    updated: dt.datetime
+    marker: str
+    detail: str
+    status: Optional[str]
+    number: int
+    item_type: str
+    url: Optional[str]
+    author: Optional[str]
+    comment_id: str
+    line_index: int
 
 
 class GithubClient:
@@ -210,6 +227,10 @@ class GithubClient:
                 f"{self.base_url}/pulls/comments", params
             )
         )
+
+    def get_issue(self, number: int) -> dict:
+        response = self._request("GET", f"{self.base_url}/issues/{number}")
+        return response.json()
 
     def list_workflow_runs(self, workflow: str) -> Iterable[dict]:
         params = {
@@ -426,16 +447,17 @@ def _extract_comment_markers(
     comments: Iterable[dict],
     markers: Sequence[str],
     status_lookup: Dict[Tuple[str, int], str],
-    annotate_group: bool,
     until: dt.datetime,
-) -> List[Tuple[dt.datetime, str]]:
-    results: List[Tuple[dt.datetime, str]] = []
-    markers = list(markers)
+) -> List[NoteMarker]:
+    results: List[NoteMarker] = []
+    marker_prefixes = list(markers)
     for comment in comments:
         body = comment.get("body") or ""
         if not body:
             continue
-        updated = _parse_github_datetime(comment.get("updated_at") or comment.get("created_at"))
+        updated = _parse_github_datetime(
+            comment.get("updated_at") or comment.get("created_at")
+        )
         if not updated or updated > until:
             continue
         issue_url = comment.get("issue_url") or comment.get("pull_request_url")
@@ -447,32 +469,51 @@ def _extract_comment_markers(
             continue
         item_type = "pull_request" if comment.get("pull_request_url") else "issue"
         status = status_lookup.get((item_type, number)) or status_lookup.get(("issue", number))
-        marker_lines = []
-        for line in body.splitlines():
-            stripped = line.strip()
-            for marker in markers:
-                if stripped.startswith(marker):
-                    marker_lines.append((marker, stripped[len(marker):].strip()))
-        if not marker_lines:
-            continue
         author = (comment.get("user") or {}).get("login")
         url = comment.get("html_url")
-        for marker, detail in marker_lines:
-            marker_label = marker.rstrip(":")
-            if detail:
-                entry = f"- **{marker_label}:** {detail}"
-            else:
-                entry = f"- **{marker_label}**"
-            meta_parts: List[str] = []
-            if annotate_group and status:
-                meta_parts.append(status)
-            meta_parts.append(f"[#{number}]({url})" if url else f"#{number}")
-            if author:
-                meta_parts.append(f"@{author}")
-            meta_parts.append(updated.strftime("%Y-%m-%d"))
-            entry += " — " + " · ".join(meta_parts)
-            results.append((updated, entry))
+        comment_id = str(comment.get("id") or comment.get("node_id") or "")
+        for index, line in enumerate(body.splitlines()):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            for marker in marker_prefixes:
+                if stripped.startswith(marker):
+                    detail = stripped[len(marker) :].strip()
+                    label = marker.rstrip(":")
+                    results.append(
+                        NoteMarker(
+                            updated=updated,
+                            marker=label,
+                            detail=detail,
+                            status=status,
+                            number=number,
+                            item_type=item_type,
+                            url=url,
+                            author=author,
+                            comment_id=comment_id,
+                            line_index=index,
+                        )
+                    )
     return results
+
+
+def _format_note_entry(marker: NoteMarker, annotate_group: bool) -> str:
+    if marker.detail:
+        entry = f"- **{marker.marker}:** {marker.detail}"
+    else:
+        entry = f"- **{marker.marker}**"
+    meta_parts: List[str] = []
+    if annotate_group and marker.status:
+        meta_parts.append(marker.status)
+    link_target = marker.url or f"#{marker.number}"
+    if marker.url:
+        meta_parts.append(f"[#{marker.number}]({link_target})")
+    else:
+        meta_parts.append(link_target)
+    if marker.author:
+        meta_parts.append(f"@{marker.author}")
+    meta_parts.append(marker.updated.strftime("%Y-%m-%d"))
+    return entry + " — " + " · ".join(meta_parts)
 
 
 def _collect_notes_section(
@@ -482,6 +523,8 @@ def _collect_notes_section(
     since: dt.datetime,
     until: dt.datetime,
     root: Path,
+    repo: str,
+    mirror_config: Optional[Dict[str, object]] = None,
 ) -> SectionResult:
     notes_config = notes_config or {}
     markers = notes_config.get(
@@ -490,6 +533,8 @@ def _collect_notes_section(
     scan_issue_comments = notes_config.get("scan_issue_comments", True)
     scan_pr_comments = notes_config.get("scan_pr_comments", True)
     annotate_group = notes_config.get("annotate_group", True)
+    scan_notes_files = notes_config.get("scan_notes_files", False)
+    notes_glob = notes_config.get("notes_glob", "docs/history/notes/**/*.md")
     filters = [
         f"Markers: {', '.join(markers)}",
     ]
@@ -501,8 +546,12 @@ def _collect_notes_section(
     filters.append(
         "Scope: comment bodies for " + (" & ".join(scope_fragments) if scope_fragments else "none")
     )
+    if scan_notes_files:
+        filters.append(f"Mirrored notes files: {notes_glob}")
+    else:
+        filters.append(f"Mirrored notes files: {notes_glob} (disabled)")
 
-    entries: List[Tuple[dt.datetime, str]] = []
+    marker_entries: List[NoteMarker] = []
     if markers:
         if scan_issue_comments:
             try:
@@ -510,9 +559,9 @@ def _collect_notes_section(
             except Exception as exc:  # noqa: BLE001
                 LOGGER.warning("Failed to fetch issue comments: %s", exc)
                 issue_comments = []
-            entries.extend(
+            marker_entries.extend(
                 _extract_comment_markers(
-                    issue_comments, markers, status_lookup, annotate_group, until
+                    issue_comments, markers, status_lookup, until
                 )
             )
         if scan_pr_comments:
@@ -521,9 +570,9 @@ def _collect_notes_section(
             except Exception as exc:  # noqa: BLE001
                 LOGGER.warning("Failed to fetch PR review comments: %s", exc)
                 review_comments = []
-            entries.extend(
+            marker_entries.extend(
                 _extract_comment_markers(
-                    review_comments, markers, status_lookup, annotate_group, until
+                    review_comments, markers, status_lookup, until
                 )
             )
     else:
@@ -531,10 +580,24 @@ def _collect_notes_section(
 
     local_notes = _collect_local_notes(root, since)
     jira_notes = _collect_jira_references(root, since)
-    note_entries = [item for _, item in sorted(entries, key=lambda pair: pair[0], reverse=True)]
+    marker_entries.sort(key=lambda item: item.updated, reverse=True)
+    formatted_markers = [
+        _format_note_entry(marker, annotate_group) for marker in marker_entries
+    ]
+    note_entries = list(formatted_markers)
     note_entries.extend(local_notes)
     note_entries.extend(jira_notes)
-    return SectionResult(entries=note_entries, filters=filters)
+    if marker_entries:
+        _mirror_note_markers(
+            client,
+            repo,
+            marker_entries,
+            mirror_config or {},
+            root,
+            until.date(),
+        )
+    metadata = {"marker_entries": marker_entries}
+    return SectionResult(entries=note_entries, filters=filters, metadata=metadata)
 
 
 def _collect_local_notes(root: Path, since: dt.datetime) -> List[str]:
@@ -587,6 +650,152 @@ def _collect_jira_references(root: Path, since: dt.datetime) -> List[str]:
         items.append(f"- Jira {key} linked to commits: {commit_list}{suffix}")
     return items
 
+
+def _mirror_note_markers(
+    client: GithubClient,
+    repo: str,
+    markers: Sequence[NoteMarker],
+    mirror_config: Dict[str, object],
+    root: Path,
+    run_date: dt.date,
+) -> None:
+    if not markers:
+        return
+    if not mirror_config.get("enabled"):
+        LOGGER.debug("Notes file mirroring disabled")
+        return
+
+    repo_root_cfg = mirror_config.get("repo_root", ".")
+    output_dir_cfg = mirror_config.get("output_dir", "docs/history/notes")
+    dry_run = bool(mirror_config.get("dry_run", False))
+    annotate_group = mirror_config.get("annotate_group", True)
+
+    base_path = Path(repo_root_cfg)
+    if not base_path.is_absolute():
+        base_path = (root / repo_root_cfg).resolve()
+    notes_dir = Path(output_dir_cfg)
+    if not notes_dir.is_absolute():
+        notes_dir = (base_path / output_dir_cfg).resolve()
+    else:
+        notes_dir = notes_dir.resolve()
+
+    if not dry_run:
+        notes_dir.mkdir(parents=True, exist_ok=True)
+
+    repo_slug = repo.replace("/", "-")
+    issue_cache: Dict[int, dict] = {}
+    digest_cache: Dict[Path, set[str]] = {}
+
+    for marker in markers:
+        note_path = notes_dir / f"{run_date.isoformat()}-{repo_slug}-{marker.number}.md"
+        if note_path not in digest_cache:
+            digest_cache[note_path] = _load_note_digests(note_path)
+        digest = _compute_note_digest(repo, marker)
+        if digest in digest_cache[note_path]:
+            continue
+        if dry_run:
+            LOGGER.debug(
+                "Dry run: would mirror note marker %s for #%s", digest, marker.number
+            )
+            continue
+        issue_data = issue_cache.get(marker.number)
+        if issue_data is None:
+            try:
+                issue_data = client.get_issue(marker.number)
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning(
+                    "Failed to fetch metadata for #%s while mirroring notes: %s",
+                    marker.number,
+                    exc,
+                )
+                issue_data = {}
+            issue_cache[marker.number] = issue_data
+        _append_note_entry(
+            note_path,
+            repo,
+            issue_data,
+            marker,
+            annotate_group,
+            digest,
+        )
+        digest_cache[note_path].add(digest)
+
+
+def _load_note_digests(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    content = path.read_text(encoding="utf-8")
+    return set(re.findall(r"<!--\s*digest:([0-9a-f]{64})\s*-->", content))
+
+
+def _compute_note_digest(repo: str, marker: NoteMarker) -> str:
+    text_source = marker.detail or marker.marker
+    text_hash = hashlib.sha256(text_source.encode("utf-8")).hexdigest()
+    payload = "|".join(
+        [repo, str(marker.number), marker.comment_id, str(marker.line_index), text_hash]
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _default_item_url(repo: str, marker: NoteMarker) -> str:
+    base = f"https://github.com/{repo}"
+    if marker.item_type == "pull_request":
+        return f"{base}/pull/{marker.number}"
+    return f"{base}/issues/{marker.number}"
+
+
+def _append_note_entry(
+    path: Path,
+    repo: str,
+    issue_data: Dict[str, object],
+    marker: NoteMarker,
+    annotate_group: bool,
+    digest: str,
+) -> None:
+    new_file = not path.exists()
+    header_lines: List[str] = []
+    if new_file:
+        title = str(issue_data.get("title") or "").strip()
+        header = f"# Notes & Decisions — #{marker.number}"
+        if title:
+            header += f" {title}"
+        source_url = str(
+            issue_data.get("html_url") or marker.url or _default_item_url(repo, marker)
+        )
+        header_lines = [
+            header,
+            "",
+            f"_Repo:_ {repo}",
+            f"_Source:_ {source_url}",
+            "",
+        ]
+
+    status_label = marker.status or "Uncategorized"
+    status_segment = f" ({status_label})" if annotate_group and status_label else ""
+    author = f"@{marker.author}" if marker.author else "unknown"
+    detail = (marker.detail or marker.marker).strip()
+    if len(detail) > 300:
+        detail = detail[:297].rstrip() + "…"
+    comment_url = marker.url or str(
+        issue_data.get("html_url") or _default_item_url(repo, marker)
+    )
+
+    entry_lines = [
+        f"- {marker.marker}{status_segment} — {marker.updated.date().isoformat()} by {author}",
+        f"  {detail}",
+        f"  [View comment]({comment_url}) <!-- digest:{digest} -->",
+    ]
+
+    write_lines: List[str] = []
+    if header_lines:
+        write_lines.extend(header_lines)
+    elif path.exists() and path.stat().st_size > 0:
+        write_lines.append("")
+    write_lines.extend(entry_lines)
+    write_lines.append("")
+
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write("\n".join(write_lines))
 
 def _collect_github_actions_artifacts(
     client: GithubClient,
@@ -771,6 +980,7 @@ def render_history(args: argparse.Namespace) -> HistoryDocument:
     root = Path(args.root).resolve()
     config = _load_historian_config(args.config, root)
     sources = config.get("sources", {})
+    notes_mirror_cfg = config.get("notes_file_mirroring", {})
     in_progress_cfg = sources.get("in_progress", {})
     backlog_cfg = sources.get("backlog", {})
     notes_cfg = sources.get("notes", {})
@@ -831,6 +1041,8 @@ def render_history(args: argparse.Namespace) -> HistoryDocument:
         since,
         until,
         root,
+        repo,
+        notes_mirror_cfg,
     )
     artifacts_result = _collect_artifacts_section(
         client,

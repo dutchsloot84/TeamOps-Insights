@@ -19,6 +19,8 @@ historian:
     notes:
       scan_issue_comments: true
       scan_pr_comments: true
+      scan_notes_files: true
+      notes_glob: "docs/history/notes/**/*.md"
       comment_markers:
         - "Decision:"
         - "Note:"
@@ -38,3 +40,9 @@ historian:
         prefixes:
           - "reports/"
           - "history/"
+  notes_file_mirroring:
+    enabled: true
+    repo_root: "."
+    output_dir: "docs/history/notes"
+    dry_run: false
+    annotate_group: true

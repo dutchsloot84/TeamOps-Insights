@@ -91,6 +91,9 @@ def test_collect_notes_section_aggregates_markers(monkeypatch: pytest.MonkeyPatc
         def list_review_comments(self, since: dt.datetime):
             return data["review_comments"]
 
+        def get_issue(self, number: int):  # pragma: no cover - not used in this test
+            raise AssertionError("get_issue should not be called when mirroring disabled")
+
     monkeypatch.setattr(generate_history, "_collect_local_notes", lambda root, since: [])
     monkeypatch.setattr(generate_history, "_collect_jira_references", lambda root, since: [])
 
@@ -104,6 +107,7 @@ def test_collect_notes_section_aggregates_markers(monkeypatch: pytest.MonkeyPatc
             "scan_issue_comments": True,
             "scan_pr_comments": True,
             "annotate_group": True,
+            "scan_notes_files": False,
         },
         status_lookup={
             ("issue", 77): "In Progress",
@@ -112,6 +116,8 @@ def test_collect_notes_section_aggregates_markers(monkeypatch: pytest.MonkeyPatc
         since=since,
         until=until,
         root=Path("."),
+        repo="org/repo",
+        mirror_config={"enabled": False},
     )
 
     assert result.count == 3
@@ -120,6 +126,7 @@ def test_collect_notes_section_aggregates_markers(monkeypatch: pytest.MonkeyPatc
     assert any("Completed" in entry for entry in result.entries)
     assert any("@octocat" in entry for entry in result.entries)
     assert result.filters[0].startswith("Markers:")
+    assert any("Mirrored notes files:" in line for line in result.filters)
 
 
 def test_collect_artifacts_section_combines_sources(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -191,3 +198,91 @@ def test_collect_completed_combines_sources() -> None:
     assert "Issue [#9]" in "\n".join(result.entries)
     assert result.metadata["issue_numbers"] == {9}
     assert result.metadata["pr_numbers"] == {7}
+
+
+def test_notes_mirroring_writes_deduplicated_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class MirrorClient:
+        repo = "org/repo"
+
+        def list_issue_comments(self, since: dt.datetime):
+            return [
+                {
+                    "id": 101,
+                    "body": "Decision: Adopt feature flags",
+                    "updated_at": "2024-02-01T10:00:00Z",
+                    "issue_url": "https://api.github.com/repos/org/repo/issues/77",
+                    "html_url": "https://github.com/org/repo/issues/77#issuecomment-101",
+                    "user": {"login": "octocat"},
+                }
+            ]
+
+        def list_review_comments(self, since: dt.datetime):
+            return []
+
+        def get_issue(self, number: int):
+            return {
+                "title": "Ship feature flags",
+                "html_url": f"https://github.com/org/repo/issues/{number}",
+            }
+
+    monkeypatch.setattr(generate_history, "_collect_local_notes", lambda root, since: [])
+    monkeypatch.setattr(generate_history, "_collect_jira_references", lambda root, since: [])
+
+    since = dt.datetime(2024, 1, 25, tzinfo=dt.timezone.utc)
+    until = dt.datetime(2024, 2, 2, tzinfo=dt.timezone.utc)
+
+    notes_config = {
+        "comment_markers": ["Decision:"],
+        "scan_issue_comments": True,
+        "scan_pr_comments": False,
+        "annotate_group": True,
+        "scan_notes_files": True,
+        "notes_glob": "notes/**/*.md",
+    }
+
+    mirror_config = {
+        "enabled": True,
+        "repo_root": ".",
+        "output_dir": "notes",
+        "annotate_group": True,
+        "dry_run": False,
+    }
+
+    status_lookup = {("issue", 77): "In Progress"}
+
+    result = generate_history._collect_notes_section(  # type: ignore[attr-defined]
+        client=MirrorClient(),
+        notes_config=notes_config,
+        status_lookup=status_lookup,
+        since=since,
+        until=until,
+        root=tmp_path,
+        repo="org/repo",
+        mirror_config=mirror_config,
+    )
+
+    notes_dir = tmp_path / "notes"
+    note_path = notes_dir / f"{until.date().isoformat()}-org-repo-77.md"
+    assert note_path.exists()
+    content = note_path.read_text(encoding="utf-8")
+    assert result.count == 1
+    assert "Notes & Decisions" in content
+    assert "Decision (In Progress)" in content
+    assert "<!-- digest:" in content
+
+    # Running again should not duplicate entries
+    generate_history._collect_notes_section(  # type: ignore[attr-defined]
+        client=MirrorClient(),
+        notes_config=notes_config,
+        status_lookup=status_lookup,
+        since=since,
+        until=until,
+        root=tmp_path,
+        repo="org/repo",
+        mirror_config=mirror_config,
+    )
+
+    content_after = note_path.read_text(encoding="utf-8")
+    assert content_after.count("View comment") == 1
