@@ -8,7 +8,9 @@
       "counts": {
         "completed": 0,
         "in_progress": 0,
-        "upcoming": 0
+        "backlog": 0,
+        "notes": 0,
+        "artifacts": 0
       }
     }
   ],
