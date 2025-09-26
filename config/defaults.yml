@@ -1,0 +1,48 @@
+historian:
+  sources:
+    in_progress:
+      project_v2:
+        enabled: true
+        project_name: "Release Copilot"
+        status_field: "Status"
+        status_values:
+          - "In Progress"
+      labels:
+        - "in-progress"
+    backlog:
+      project_v2:
+        enabled: true
+        project_name: "Release Copilot"
+        status_field: "Status"
+        status_values:
+          - "Backlog"
+    notes:
+      scan_issue_comments: true
+      scan_pr_comments: true
+      scan_notes_files: true
+      notes_glob: "docs/history/notes/**/*.md"
+      comment_markers:
+        - "Decision:"
+        - "Note:"
+        - "Blocker:"
+        - "Action:"
+      annotate_group: true
+      group_subsections: false
+    artifacts:
+      github_actions:
+        enabled: true
+        workflows:
+          - "ci.yml"
+          - "weekly-history.yml"
+      s3:
+        enabled: false
+        bucket: "releasecopilot-artifacts"
+        prefixes:
+          - "reports/"
+          - "history/"
+  notes_file_mirroring:
+    enabled: true
+    repo_root: "."
+    output_dir: "docs/history/notes"
+    dry_run: false
+    annotate_group: true

@@ -1,0 +1,11 @@
+{
+  "items": [
+    {
+      "number": 314,
+      "title": "Implement token refresh",
+      "url": "https://github.com/dummy/repo/issues/314",
+      "status": "In Progress",
+      "assignees": ["octocat"]
+    }
+  ]
+}

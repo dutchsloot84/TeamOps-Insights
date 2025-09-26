@@ -54,15 +54,17 @@ jobs:
 
       - name: Generate history
         env:
+          PYTHONPATH: ${{ github.workspace }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SINCE_INPUT: ${{ inputs.since }}
           TEMPLATE_INPUT: ${{ inputs.template }}
         run: |
           SINCE_VALUE="${SINCE_INPUT:-7d}"
+          BASE_CMD=(python -m scripts.generate_history --since "$SINCE_VALUE" --until now --output docs/history --debug-scan)
           if [ -n "$TEMPLATE_INPUT" ]; then
-            python scripts/generate_history.py --since "$SINCE_VALUE" --output docs/history --template "$TEMPLATE_INPUT"
-          else
-            python scripts/generate_history.py --since "$SINCE_VALUE" --output docs/history
+            BASE_CMD+=(--template "$TEMPLATE_INPUT")
           fi
+          "${BASE_CMD[@]}"
 
       - name: Check for changes
         id: changes
