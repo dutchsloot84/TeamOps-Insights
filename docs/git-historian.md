@@ -55,9 +55,12 @@ The workflow in [`.github/workflows/weekly-history.yml`](../.github/workflows/we
 and can also be triggered manually (`workflow_dispatch`). It performs the following steps:
 
 1. Check out the repository.
-2. Run `python scripts/generate_history.py --since 7d --output docs/history`.
-3. Commit changes in `docs/history/*.md` on a branch named `auto/history-<date>`.
-4. Open a pull request summarizing the update.
+2. Lint the GitHub workflow definitions with [`reviewdog/action-actionlint`](https://github.com/reviewdog/action-actionlint)
+   pinned to commit `93dc1f9bc10856298b6cc1a3b3239cfbbb87fe4b` (release `v1.67.0`) and `fail_level: error`
+   so any detected issues fail fast.
+3. Run `python scripts/generate_history.py --since 7d --output docs/history`.
+4. Commit changes in `docs/history/*.md` on a branch named `auto/history-<date>`.
+5. Open a pull request summarizing the update.
 
 If no files change, the workflow exits early and does not create a PR.
 
@@ -66,6 +69,21 @@ To run the workflow manually:
 1. Navigate to **Actions → Weekly Git Historian** in GitHub.
 2. Click **Run workflow** and optionally override the `since` window or template path.
 3. A pull request is created automatically if new history content is generated.
+
+### Linting and maintenance
+
+* The workflow lint step relies on `reviewdog/action-actionlint` pinned to commit
+  `93dc1f9bc10856298b6cc1a3b3239cfbbb87fe4b` (release `v1.67.0`). Update to a newer
+  version by editing the `uses:` line in the workflow to a newer commit SHA and adjusting
+  this document.
+* The action runs `actionlint` against files in `.github/workflows/`. If lint errors are
+  reported, the job fails and the check run contains the detailed findings.
+* When bumping the version, use `curl https://api.github.com/repos/reviewdog/action-actionlint/releases`
+  (or the GitHub UI) to select the desired release, copy the commit SHA, and update the
+  workflow `uses:` reference.
+* If the GitHub Actions runner cannot resolve the action due to registry outages, fall back
+  to [installing the binary directly](https://github.com/rhysd/actionlint#download) in a shell
+  step. Add a TODO comment in the workflow and revert once the marketplace issue is resolved.
 
 ## Customization
 
