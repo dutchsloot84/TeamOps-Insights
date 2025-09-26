@@ -72,7 +72,7 @@ Configuration precedence is:
 
 1. CLI flags (highest priority)
 2. Environment variables, including values sourced from `.env`
-3. YAML defaults (`releasecopilot.yaml`)
+3. YAML defaults (`config/settings.yaml`)
 
 For non-local deployments, rely on AWS Secrets Manager wherever possible and only fall back to `.env` for iterative development.
 
@@ -103,6 +103,7 @@ python main.py \
 | `--s3-bucket` | Override the S3 bucket defined in `config/settings.yaml`. |
 | `--s3-prefix` | Prefix within the S3 bucket for uploaded artifacts (default: `releasecopilot`). |
 | `--output-prefix` | Basename for generated output files. |
+| `--log-level` | Logging verbosity for the current run. |
 
 ### S3 Upload Layout
 
