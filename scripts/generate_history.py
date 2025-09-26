@@ -1174,7 +1174,8 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the generated Markdown without writing",
     )
-    parser.add_argument("--log-level", default="INFO", help="Logging level")
+    parser.add_argument("--debug-scan", action="store_true", help="Emit additional scan diagnostics and default to DEBUG logging")
+    parser.add_argument("--log-level", help="Logging level (overrides --debug-scan default)")
     parser.add_argument(
         "--root",
         default=".",
@@ -1184,13 +1185,40 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _determine_log_level(args: argparse.Namespace) -> int:
+    """Resolve the effective log level for the CLI invocation."""
+
+    explicit_level = args.log_level.upper() if args.log_level else None
+    if args.debug_scan and not explicit_level:
+        explicit_level = "DEBUG"
+
+    level_name = explicit_level or "INFO"
+    return getattr(logging, level_name, logging.INFO)
+
+
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
-    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
+
+    logging.basicConfig(level=_determine_log_level(args))
+
+    if args.debug_scan:
+        LOGGER.debug("Debug scan enabled. Effective log level: %s", logging.getLevelName(logging.getLogger().getEffectiveLevel()))
+        safe_args = {k: v for k, v in vars(args).items() if k not in {"token"}}
+        LOGGER.debug("CLI arguments (sanitized): %s", safe_args)
 
     root_path = Path(args.root).resolve()
     document = render_history(args)
+
+    if args.debug_scan:
+        LOGGER.debug(
+            "Rendered document counts: completed=%d in_progress=%d backlog=%d notes=%d artifacts=%d",
+            document.counts.get("completed", 0),
+            document.counts.get("in_progress", 0),
+            document.counts.get("backlog", 0),
+            document.counts.get("notes", 0),
+            document.counts.get("artifacts", 0),
+        )
 
     if args.dry_run:
         print(document.markdown)
@@ -1202,6 +1230,13 @@ def main() -> None:
     output_path = output_dir / filename
     output_path.write_text(document.markdown, encoding="utf-8")
     LOGGER.info("Wrote %s", output_path)
+
+    if args.debug_scan:
+        LOGGER.debug("Output directory contents: %s", sorted(p.name for p in output_dir.iterdir()))
+        if args.template:
+            LOGGER.debug("Template path: %s", Path(args.template).resolve())
+        if args.config:
+            LOGGER.debug("Config path: %s", Path(args.config).resolve())
 
     index_path = root_path / "docs" / "context" / "context-index.json"
     try:
