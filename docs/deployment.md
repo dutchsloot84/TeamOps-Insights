@@ -53,6 +53,13 @@ cdk deploy ReleaseCopilot-<env>-Core -c scheduleEnabled=true
   environment. The workflow configures AWS credentials via OIDC and deploys the
   core stack. Provide the `AWS_OIDC_ROLE_ARN` secret scoped to that environment.
 
+### GitHub OIDC deploy role
+
+1. In IAM create a new role with a **Web identity** trust policy. Use `infra/iam/github-actions-oidc-trust.json` as the baseline document and replace `<AWS_ACCOUNT_ID>` and the `repo:` condition with your own values.
+2. Attach a customer managed policy using `infra/iam/github-actions-oidc-permissions.json`. Replace `<AWS_REGION>`, `<AWS_ACCOUNT_ID>`, `<PROJECT_STACK_PREFIX>`, `<ARTIFACT_BUCKET_NAME>`, `<JIRA_TABLE_NAME>`, `<PROJECT_SECRET_PREFIX>`, and `<LAMBDA_LOG_GROUP_PREFIX>` with the deployed resource names (stack outputs provide the concrete values). The actions are scoped to the DynamoDB, S3, Secrets Manager, and CloudWatch Logs resources created by the CDK stacks.
+3. Save the role ARN as the `AWS_OIDC_ROLE_ARN` repository secret (or environment secret for production) so that GitHub Actions can assume it.
+4. The new `.github/workflows/cdk-ci.yml` workflow assumes this role to run `cdk diff` on pull requests that touch the CDK app. The manual `cdk-deploy` workflow continues to use the same secret for production deployments.
+
 ### Runtime Settings
 
 - Stack outputs expose the artifacts bucket name, Lambda identifiers, DynamoDB
