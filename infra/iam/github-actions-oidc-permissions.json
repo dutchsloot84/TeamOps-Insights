@@ -2,97 +2,115 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "CloudFormationDeploy",
+      "Sid": "CloudFormationDeployLimited",
       "Effect": "Allow",
       "Action": [
-        "cloudformation:CreateStack",
-        "cloudformation:UpdateStack",
-        "cloudformation:DeleteStack",
-        "cloudformation:DescribeStacks",
-        "cloudformation:DescribeStackEvents",
-        "cloudformation:GetTemplate",
-        "cloudformation:ValidateTemplate",
         "cloudformation:CreateChangeSet",
+        "cloudformation:CreateStack",
         "cloudformation:DeleteChangeSet",
-        "cloudformation:DescribeChangeSet",
-        "cloudformation:ExecuteChangeSet"
+        "cloudformation:DeleteStack",
+        "cloudformation:Describe*",
+        "cloudformation:ExecuteChangeSet",
+        "cloudformation:GetTemplate",
+        "cloudformation:List*",
+        "cloudformation:UpdateStack",
+        "cloudformation:ValidateTemplate"
       ],
-      "Resource": "arn:aws:cloudformation:<AWS_REGION>:<AWS_ACCOUNT_ID>:stack/<PROJECT_STACK_PREFIX>-*/*"
+      "Resource": "arn:aws:cloudformation:${aws:Region}:${aws:AccountId}:stack/ReleaseCopilot-*/*"
     },
     {
-      "Sid": "ArtifactsBucket",
+      "Sid": "BootstrapBucketList",
       "Effect": "Allow",
       "Action": [
-        "s3:CreateBucket",
-        "s3:DeleteBucket",
-        "s3:ListBucket",
         "s3:GetBucketLocation",
-        "s3:PutBucketVersioning",
-        "s3:PutEncryptionConfiguration",
-        "s3:PutLifecycleConfiguration",
-        "s3:PutBucketPolicy",
-        "s3:DeleteBucketPolicy",
-        "s3:PutBucketTagging",
-        "s3:GetBucketTagging",
-        "s3:PutBucketPublicAccessBlock",
-        "s3:GetBucketPublicAccessBlock",
-        "s3:PutBucketOwnershipControls",
-        "s3:GetBucketOwnershipControls",
-        "s3:PutObject",
-        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::cdk-hnb659fds-assets-${aws:AccountId}-${aws:Region}"
+    },
+    {
+      "Sid": "BootstrapBucketObjectsRW",
+      "Effect": "Allow",
+      "Action": [
         "s3:DeleteObject",
-        "s3:AbortMultipartUpload"
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::cdk-hnb659fds-assets-${aws:AccountId}-${aws:Region}/*"
+    },
+    {
+      "Sid": "ProjectRoleManagement",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:PassRole",
+        "iam:PutRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole"
+      ],
+      "Resource": "arn:aws:iam::${aws:AccountId}:role/ReleaseCopilot-*"
+    },
+    {
+      "Sid": "ProjectPolicyManagement",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreatePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListPolicyVersions",
+        "iam:TagPolicy",
+        "iam:UntagPolicy"
+      ],
+      "Resource": "arn:aws:iam::${aws:AccountId}:policy/ReleaseCopilot-*"
+    },
+    {
+      "Sid": "DdbRWSpecificTables",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:BatchWriteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:UpdateItem"
       ],
       "Resource": [
-        "arn:aws:s3:::<ARTIFACT_BUCKET_NAME>",
-        "arn:aws:s3:::<ARTIFACT_BUCKET_NAME>/*"
+        "arn:aws:dynamodb:${aws:Region}:${aws:AccountId}:table/ReleaseCopilot-Reports",
+        "arn:aws:dynamodb:${aws:Region}:${aws:AccountId}:table/ReleaseCopilot-Reports/index/*"
       ]
     },
     {
-      "Sid": "JiraDynamoTable",
+      "Sid": "SecretsReadOnly",
       "Effect": "Allow",
       "Action": [
-        "dynamodb:CreateTable",
-        "dynamodb:UpdateTable",
-        "dynamodb:DeleteTable",
-        "dynamodb:DescribeTable",
-        "dynamodb:DescribeContinuousBackups",
-        "dynamodb:UpdateContinuousBackups",
-        "dynamodb:DescribeTimeToLive",
-        "dynamodb:UpdateTimeToLive",
-        "dynamodb:TagResource",
-        "dynamodb:UntagResource"
-      ],
-      "Resource": "arn:aws:dynamodb:<AWS_REGION>:<AWS_ACCOUNT_ID>:table/<JIRA_TABLE_NAME>"
-    },
-    {
-      "Sid": "SecretsManager",
-      "Effect": "Allow",
-      "Action": [
-        "secretsmanager:CreateSecret",
-        "secretsmanager:DeleteSecret",
         "secretsmanager:DescribeSecret",
-        "secretsmanager:GetSecretValue",
-        "secretsmanager:PutSecretValue",
-        "secretsmanager:TagResource",
-        "secretsmanager:UntagResource",
-        "secretsmanager:UpdateSecret"
+        "secretsmanager:GetSecretValue"
       ],
-      "Resource": "arn:aws:secretsmanager:<AWS_REGION>:<AWS_ACCOUNT_ID>:secret:<PROJECT_SECRET_PREFIX>*"
+      "Resource": "arn:aws:secretsmanager:${aws:Region}:${aws:AccountId}:secret:releasecopilot/*"
     },
     {
-      "Sid": "CloudWatchLogs",
+      "Sid": "LogsWriteSpecificGroups",
       "Effect": "Allow",
       "Action": [
-        "logs:CreateLogGroup",
-        "logs:DeleteLogGroup",
-        "logs:DescribeLogGroups",
-        "logs:PutRetentionPolicy",
-        "logs:DeleteRetentionPolicy",
-        "logs:TagLogGroup",
-        "logs:UntagLogGroup"
+        "logs:CreateLogStream",
+        "logs:DescribeLogStreams",
+        "logs:PutLogEvents"
       ],
-      "Resource": "arn:aws:logs:<AWS_REGION>:<AWS_ACCOUNT_ID>:log-group:/aws/lambda/<LAMBDA_LOG_GROUP_PREFIX>*:*"
+      "Resource": [
+        "arn:aws:logs:${aws:Region}:${aws:AccountId}:log-group:/aws/lambda/releasecopilot-*",
+        "arn:aws:logs:${aws:Region}:${aws:AccountId}:log-group:/aws/lambda/releasecopilot-*:log-stream:*"
+      ]
     }
   ]
 }
