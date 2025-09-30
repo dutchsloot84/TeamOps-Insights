@@ -1,0 +1,75 @@
+name: cdk-ci
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'cdk/**'
+      - 'infra/iam/**'
+      - '.github/workflows/cdk-ci.yml'
+      - 'scripts/package_lambda.sh'
+      - 'scripts/package_lambda.py'
+  push:
+    branches:
+      - main
+    paths:
+      - 'cdk/**'
+      - 'infra/iam/**'
+      - '.github/workflows/cdk-ci.yml'
+      - 'scripts/package_lambda.sh'
+      - 'scripts/package_lambda.py'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+  PROJECT_NAME: ${{ vars.PROJECT_NAME || 'releasecopilot-ai' }}
+
+jobs:
+  diff:
+    name: CDK diff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r cdk/requirements.txt
+
+      - name: Install AWS CDK CLI
+        run: npm install -g aws-cdk@2
+
+      - name: Package Lambda artifacts
+        run: |
+          if [ -x scripts/package_lambda.sh ]; then
+            scripts/package_lambda.sh
+          elif [ -f scripts/package_lambda.py ]; then
+            python scripts/package_lambda.py --out dist/lambda_bundle.zip
+          else
+            echo "No lambda packaging helper found" >&2
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          role-session-name: cdk-ci
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: CDK diff
+        env:
+          PROJECT_NAME: ${{ env.PROJECT_NAME }}
+        run: |
+          cd cdk
+          cdk diff "${PROJECT_NAME}-core"
+          cdk diff "${PROJECT_NAME}-lambda"
