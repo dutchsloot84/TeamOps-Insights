@@ -36,11 +36,10 @@ The preflight script prints the Python binary path, version, and operating syste
 
 ## GitHub Actions workflow
 
-The `cdk-ci` workflow contains three jobs:
+The `cdk-ci` workflow contains two jobs:
 
 1. **validate** – installs dependencies, runs the preflight diagnostics, assumes the deploy role via OIDC, and executes `cdk list`, `cdk synth`, and `cdk diff`. The synthesized output is uploaded as a build artifact when available.
 2. **deploy** – triggered on pushes to `main` or tags matching `v*`; it re-installs dependencies, assumes the same role, and runs `cdk deploy --require-approval never --all`.
-3. **diagnostic** – temporary inventory job that records bootstrap metadata, deployed stacks, and per-stack resources such as CloudWatch log groups, DynamoDB tables, and Secrets Manager secrets. The output is grouped in the job logs for easy copy/paste during the least-privilege hardening pass.
 
 Every job sets `permissions: id-token: write` and `contents: read`, and uses the repository variable `OIDC_ROLE_ARN` for the role to assume. The `Who am I` step runs `aws sts get-caller-identity` so you can confirm the workflow assumed the expected role.
 
@@ -52,8 +51,12 @@ Every job sets `permissions: id-token: write` and `contents: read`, and uses the
 | `Could not load credentials` in CI | Confirm the `OIDC_ROLE_ARN` repository variable is set and that the workflow still has `permissions: id-token: write`. |
 | Access denied when uploading CDK assets | Verify the inline policy created from `infra/iam/policies/s3_bootstrap.json` (or generated via `scripts/compose_policies.py`) is attached to the deploy role. |
 
+## Changelog
+
+* 2024-05-18 – Removed the temporary diagnostic inventory job after validating least-privilege deploys. See the [successful deploy run](https://github.com/ReleaseCopilot/ReleaseCopilot-AI/actions/workflows/cdk-ci.yml?query=branch%3Amain+is%3Asuccess) for confirmation.
+
 ## Historian
 
 * **Decisions** – Adopted OIDC for all CDK deploys and centralized on a single `cdk-ci` workflow.
-* **Notes** – Keep the `diagnostic` job enabled until least-privilege policies are confirmed, then remove it to shorten pipeline runtime.
-* **Actions** – After the first successful deploy, run the diagnostic job output through `scripts/compose_policies.py` to generate final inline policies and attach them to the deploy role while removing broad managed policies.
+* **Notes** – Diagnostic inventory output is no longer collected automatically; refer to the retained IAM policy templates for least-privilege updates.
+* **Actions** – Continue to maintain the inline policies generated from `scripts/compose_policies.py` and adjust permissions as new infrastructure components are introduced.
