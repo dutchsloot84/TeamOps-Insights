@@ -16,7 +16,7 @@
         "cloudformation:UpdateStack",
         "cloudformation:ValidateTemplate"
       ],
-      "Resource": "arn:aws:cloudformation:${aws:Region}:${aws:AccountId}:stack/ReleaseCopilot-*/*"
+      "Resource": "arn:aws:cloudformation:${aws:Region}:${aws:AccountId}:stack/releasecopilot-ai-*/*"
     },
     {
       "Sid": "BootstrapBucketList",
@@ -86,8 +86,8 @@
         "dynamodb:UpdateItem"
       ],
       "Resource": [
-        "arn:aws:dynamodb:${aws:Region}:${aws:AccountId}:table/ReleaseCopilot-Reports",
-        "arn:aws:dynamodb:${aws:Region}:${aws:AccountId}:table/ReleaseCopilot-Reports/index/*"
+        "arn:aws:dynamodb:${aws:Region}:${aws:AccountId}:table/releasecopilot-ai-core-JiraIssuesTable*",
+        "arn:aws:dynamodb:${aws:Region}:${aws:AccountId}:table/releasecopilot-ai-core-JiraIssuesTable*/index/*"
       ]
     },
     {
@@ -97,7 +97,12 @@
         "secretsmanager:DescribeSecret",
         "secretsmanager:GetSecretValue"
       ],
-      "Resource": "arn:aws:secretsmanager:${aws:Region}:${aws:AccountId}:secret:releasecopilot/*"
+      "Resource": [
+        "arn:aws:secretsmanager:${aws:Region}:${aws:AccountId}:secret:releasecopilot-ai/oauth-*",
+        "arn:aws:secretsmanager:${aws:Region}:${aws:AccountId}:secret:releasecopilot-ai-core-JiraSecret*",
+        "arn:aws:secretsmanager:${aws:Region}:${aws:AccountId}:secret:releasecopilot-ai-core-BitbucketSecret*",
+        "arn:aws:secretsmanager:${aws:Region}:${aws:AccountId}:secret:releasecopilot-ai-core-JiraWebhookSecret*"
+      ]
     },
     {
       "Sid": "LogsWriteSpecificGroups",
@@ -108,8 +113,8 @@
         "logs:PutLogEvents"
       ],
       "Resource": [
-        "arn:aws:logs:${aws:Region}:${aws:AccountId}:log-group:/aws/lambda/releasecopilot-*",
-        "arn:aws:logs:${aws:Region}:${aws:AccountId}:log-group:/aws/lambda/releasecopilot-*:log-stream:*"
+        "arn:aws:logs:${aws:Region}:${aws:AccountId}:log-group:/aws/lambda/releasecopilot-ai-lambda-AuditLambda*",
+        "arn:aws:logs:${aws:Region}:${aws:AccountId}:log-group:/aws/lambda/releasecopilot-ai-lambda-AuditLambda*:log-stream:*"
       ]
     }
   ]
