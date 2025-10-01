@@ -1,0 +1,14 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PassRoles",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::781047749939:role/ReleaseCopilot-CoreRole",
+        "arn:aws:iam::781047749939:role/ReleaseCopilot-LambdaRole"
+      ]
+    }
+  ]
+}

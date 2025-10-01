@@ -1,43 +1,59 @@
-# CI/CD runbook for CDK deployments
+# ReleaseCopilot CI/CD
 
-This runbook explains how the `cdk-ci` workflow deploys the infrastructure stacks and what to check when something fails.
+This document captures how the ReleaseCopilot infrastructure is validated and deployed with AWS CDK using GitHub Actions and OpenID Connect (OIDC).
 
-## Workflow overview
-- **Triggers** – Pull requests touching `infra/**`, `cdk/**`, `cdk.json`, `package*.json`, or `requirements*.txt` run the `CDK diff` job. Pushes to `main` or tags that start with `v` run both `CDK diff` and `CDK deploy`.
-- **Credentials** – The workflow assumes the GitHub OIDC role via `${{ vars.OIDC_ROLE_ARN }}` (falling back to the secret of the same name). The AWS Region defaults to `us-west-2` but can be overridden through the `AWS_REGION` repository variable.
-- **Build pipeline** – Each job installs CDK dependencies, packages the Lambda code with `scripts/package_lambda.sh`, runs `cdk synth`, and keeps the synthesized templates (`cdk.out`) as an artifact. Deployments run `cdk deploy --require-approval never` for `releasecopilot-ai-core` and `releasecopilot-ai-lambda`.
-- **Non-blocking diffs** – On pull requests, the `cdk-diff` job is marked as informational so reviewers still see results even if the diff fails because of missing AWS permissions or template drift.
+## Overview
 
-## Rerunning or debugging jobs
-1. Open the workflow run in GitHub Actions and use **Re-run job** (preferred) or **Re-run all jobs** after pushing policy fixes.
-2. Inspect the uploaded `cdk.out` artifact to confirm CDK generated the expected assets.
-3. When the workflow fails before `configure-aws-credentials`, the issue is in dependency installation (Python, Node, packaging). When it fails after that step, collect the AWS error message and adjust the IAM policy or AWS environment.
-4. If the `cdk-diff` job reports empty `cdk.out`, ensure `scripts/package_lambda.sh` succeeded and that `dist/lambda` contains the packaged runtime before running CDK commands.
+* The CDK application lives in `infra/cdk` and is executed through the portable wrapper `run_cdk_app.py`.
+* GitHub Actions authenticates to AWS via the repository variable `OIDC_ROLE_ARN` and the `aws-actions/configure-aws-credentials` action.
+* The workflow file `.github/workflows/cdk-ci.yml` runs validation on every pull request and performs full deploys on pushes to `main` and semantic tags.
 
-## Common errors and fixes
-| Symptom | Likely cause | Fix |
-| --- | --- | --- |
-| `AccessDenied` on `sts:AssumeRole` | Repository variable `OIDC_ROLE_ARN` missing or trust policy not scoped to this repo | Set `OIDC_ROLE_ARN` in repo variables and confirm the IAM trust policy includes `repo:dutchsloot84/ReleaseCopilot-AI:*`.
-| `AccessDenied` on `s3:PutObject` | Bootstrap bucket policy missing | Attach the `BootstrapBucketObjectsRW` statement from `infra/iam/github-actions-oidc-permissions.json` to the role and verify the CDK qualifier (`hnb659fds` by default).
-| `AccessDenied` on `cloudformation:*` | Stack ARN pattern mismatch | Ensure the CloudFormation statement uses the `ReleaseCopilot-*` prefix or adjust it to match your stack names.
-| `ResourceNotFoundException` while packaging Lambda | Dependencies in `requirements.txt` changed | Update the workflow cache or run `scripts/package_lambda.sh` locally to confirm the bundle builds.
+## Local workflows
 
-## Values to verify in AWS
-- [ ] GitHub OIDC provider: `token.actions.githubusercontent.com` with `aud=sts.amazonaws.com` and `sub=repo:dutchsloot84/ReleaseCopilot-AI:*`.
-- [ ] IAM role session duration (60–120 minutes) allows CDK deploys to finish.
-- [ ] CDK bootstrap stack exists in `us-west-2` and the bucket name matches `cdk-hnb659fds-assets-<account>-us-west-2` (update the policy if your qualifier differs).
-- [ ] Actual log group names for Lambda functions (expected `/aws/lambda/releasecopilot-*`).
-- [ ] DynamoDB table name and GSIs used by ReleaseCopilot (expected `ReleaseCopilot-Reports` and its secondary indexes).
-- [ ] Secrets Manager prefix used at runtime (expected `releasecopilot/*`).
+### Prerequisites
 
-## What you need to verify/do manually
-- [ ] Detach the broad managed policies from the GitHub OIDC deployment role and attach the inline policy defined in `infra/iam/github-actions-oidc-permissions.json`.
-- [ ] Update the inline policy if your CDK qualifier is not `hnb659fds` or if stack/resource names use a different prefix.
-- [ ] Set the `OIDC_ROLE_ARN` repository variable (or secret) so the workflow can assume the deployment role.
-- [ ] Run the `cdk-ci` workflow on `main` or a `v*` tag and capture the run URL/screenshot for the issue tracker.
-- [ ] Grant any additional scoped permissions surfaced by the first failed deploy attempt (for example, IAM role updates for new resources).
+* Python 3.11 (or newer) with `pip`
+* Node.js 18+ to run the AWS CDK CLI through `npx`
 
-## Additional notes
-- The IAM policy template intentionally scopes IAM, DynamoDB, Secrets Manager, CloudWatch Logs, and S3 permissions to ReleaseCopilot resources. Adjust the ARNs if you rename stacks or tables.
-- If you introduce Docker or ECR assets in CDK, extend the policy with the minimal `ecr:*` and `ecs:*` permissions required by those assets.
-- For staging or multi-account setups, duplicate the workflow with different `AWS_REGION`, `PROJECT_NAME`, and `OIDC_ROLE_ARN` variables rather than broadening this policy.
+From the repository root you can run:
+
+```bash
+npm run cdk:list
+npm run cdk:synth
+npm run cdk:deploy:all
+```
+
+These commands run in the `infra/cdk` directory and invoke the wrapper so that `python` vs. `python3` differences do not matter.
+
+If you need to troubleshoot interpreter mismatches, execute:
+
+```bash
+cd infra/cdk
+python scripts/preflight.py
+```
+
+The preflight script prints the Python binary path, version, and operating system before re-executing `app.py`.
+
+## GitHub Actions workflow
+
+The `cdk-ci` workflow contains three jobs:
+
+1. **validate** – installs dependencies, runs the preflight diagnostics, assumes the deploy role via OIDC, and executes `cdk list`, `cdk synth`, and `cdk diff`. The synthesized output is uploaded as a build artifact when available.
+2. **deploy** – triggered on pushes to `main` or tags matching `v*`; it re-installs dependencies, assumes the same role, and runs `cdk deploy --require-approval never --all`.
+3. **diagnostic** – temporary inventory job that records bootstrap metadata, deployed stacks, and per-stack resources such as CloudWatch log groups, DynamoDB tables, and Secrets Manager secrets. The output is grouped in the job logs for easy copy/paste during the least-privilege hardening pass.
+
+Every job sets `permissions: id-token: write` and `contents: read`, and uses the repository variable `OIDC_ROLE_ARN` for the role to assume. The `Who am I` step runs `aws sts get-caller-identity` so you can confirm the workflow assumed the expected role.
+
+## Troubleshooting
+
+| Symptom | Suggested fix |
+| --- | --- |
+| `cdk list` prints usage information | Ensure you are running commands from the repository root through `npm run` (or directly within `infra/cdk`) so that `run_cdk_app.py` is used. |
+| `Could not load credentials` in CI | Confirm the `OIDC_ROLE_ARN` repository variable is set and that the workflow still has `permissions: id-token: write`. |
+| Access denied when uploading CDK assets | Verify the inline policy created from `infra/iam/policies/s3_bootstrap.json` (or generated via `scripts/compose_policies.py`) is attached to the deploy role. |
+
+## Historian
+
+* **Decisions** – Adopted OIDC for all CDK deploys and centralized on a single `cdk-ci` workflow.
+* **Notes** – Keep the `diagnostic` job enabled until least-privilege policies are confirmed, then remove it to shorten pipeline runtime.
+* **Actions** – After the first successful deploy, run the diagnostic job output through `scripts/compose_policies.py` to generate final inline policies and attach them to the deploy role while removing broad managed policies.
