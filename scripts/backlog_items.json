@@ -1,0 +1,219 @@
+[
+  {
+    "title": "Jira Webhook-based Sync (Epic)",
+    "body": "The initial Jira webhook pipeline was introduced in **PR #80** with DynamoDB-backed storage. This Epic extends that work by making the pipeline production-grade: adding schema validation, idempotency, metrics, and developer documentation.\n\n### Acceptance Criteria\n- Webhook receiver (API Gateway + Lambda) remains deployed via CDK.\n- Signature/HMAC validation enforced for all incoming events.\n- Payloads normalized into schema `{issue_key, fields, changelog, updated_at, version}`.\n- Idempotent writes into DynamoDB (dedup by issue ID + updated timestamp).\n- Structured logging and retries re-use patterns from **PR #79**.\n- Metrics (success/failure counts, dedup events) published to CloudWatch.\n- Documentation updated to include webhook setup and troubleshooting.\n\n### Codex Prompt\nYou are a senior DevOps engineer and Python developer.  \n\n**Issue Reference: Epic: Jira Webhook-based Sync**  \n\nEnhance the Jira webhook ingestion pipeline introduced in PR #80.  \n\n**Core Tasks**\n1. Extend existing Lambda handler:\n   - Validate HMAC signatures (use shared secret from Secrets Manager).\n   - Enforce normalized schema and idempotent writes into DynamoDB.\n2. Add structured logging (building on #79).\n3. Add CloudWatch metrics for ingestion (processed, deduped, failed).\n4. Update CDK stack to enforce least-privilege IAM for DynamoDB, Secrets, and Logs.\n5. Write integration tests using sample webhook payloads.\n\n**Acceptance Criteria**\n- Valid Jira webhooks ingested into DynamoDB consistently.\n- Duplicate webhook deliveries do not produce duplicates.\n- CloudWatch metrics visible for success/failure.\n- Tests pass with recorded sample events.",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Jira] Initial Bootstrap Load via JQL → Cache Store",
+    "body": "The Jira webhook ingestion pipeline (introduced in PR #80) writes issue events into a DynamoDB-backed cache.  \nHowever, webhooks only capture **future** changes. Since no audits have been run yet, the cache must be **seeded with a baseline set of Jira issues** before the first audit can succeed.  \n\nThis one-time bootstrap job will use Jira JQL queries to fetch all relevant issues and populate the cache in the same schema used by the webhook pipeline.\n\n## Description\n\nImplement a bootstrap mechanism to load existing Jira issues into the DynamoDB cache so that the very first audits have complete data coverage.  \n\n- Run JQL queries (scoped by project, fixVersion, or release labels).  \n- Normalize results into schema:  \n  `{issue_key, fields, changelog, updated_at, version}`  \n- Store normalized items into the DynamoDB table.  \n- Support resumable execution (checkpointing).  \n- Provide summary reporting at completion.  \n\n## Acceptance Criteria\n\n- [ ] CLI or Lambda job runs JQL queries and writes results to DynamoDB.  \n- [ ] Data written in the same schema as webhook ingestion (PR #80).  \n- [ ] Job supports checkpointing to resume after interruption.  \n- [ ] Structured logging and retry/backoff logic reused from PR #79.  \n- [ ] Summary report displays issues loaded, skipped, and failed.  \n- [ ] First audit can run successfully with complete dataset.  \n\n## Codex Prompt\n\nYou are a senior Python engineer with Jira API experience.  \n\n**Issue Reference:** Initial Bootstrap Load via JQL → Cache Store (#102)  \n\nYour task is to implement a bootstrap mechanism to seed the Jira cache with existing issues before the first audits run.  \n\n### Core Tasks\n1. Implement a CLI or Lambda job that fetches Jira issues via JQL in pages.  \n2. Normalize each issue into schema `{issue_key, fields, changelog, updated_at, version}`.  \n3. Write normalized issues into the DynamoDB cache used by webhook ingestion.  \n4. Add checkpointing to resume after failure or interruption.  \n5. Apply structured logging and retry/backoff utilities introduced in PR #79.  \n6. Print a clear summary report (loaded, skipped, failed counts).  \n\n### Acceptance Criteria\n- DynamoDB cache populated with all Jira issues in release scope.  \n- Job can be safely resumed after a partial run.  \n- Schema matches webhook ingestion pipeline (PR #80).  \n- First audit runs against a complete, correct dataset.  ",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "Nightly Reconciliation (EventBridge) for Drift",
+    "body": "PR #66 added optional EventBridge schedules, and PR #58 added CloudWatch alarms. This issue formalizes reconciliation: ensuring cached Jira data matches ground truth via JQL.\n\n### Acceptance Criteria\n- EventBridge nightly trigger runs Lambda reconciliation job.\n- Job compares sampled JQL results against DynamoDB entries.\n- Drift report generated: missing, outdated, inconsistent.\n- Auto-healing configurable (repair vs report only).\n- Metrics emitted (drift count, repairs attempted).\n- Alerts reused from PR #58 (CloudWatch alarms).\n\n### Codex Prompt\nYou are a senior SRE specializing in AWS.  \n\n**Issue Reference: Nightly Reconciliation (EventBridge) for Drift**  \n\nImplement a nightly drift reconciliation between Jira and the DynamoDB cache.  \n\n**Core Tasks**\n1. Add CDK EventBridge rule to run nightly (extend PR #66).\n2. Lambda function:\n   - Fetch JQL slice from Jira.\n   - Compare with cached items in DynamoDB.\n   - Generate drift report.\n   - Optionally repair drift.\n3. Publish metrics (drift detected, drift healed).\n4. Integrate CloudWatch alarms from PR #58.\n\n**Acceptance Criteria**\n- Nightly drift report generated.\n- Cache auto-heals if enabled.\n- Alerts fire if drift exceeds threshold.",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "Guardrails: Retries, DLQ, Poison-pill, Alarms",
+    "body": "PR #79 added retries and structured errors. This task extends reliability with DLQ, poison-pill handling, and replay.\n\n### Acceptance Criteria\n- Retry/backoff policies applied consistently (building on PR #79).\n- DLQ (SQS) attached to webhook Lambda.\n- Malformed events quarantined (poison-pill detection).\n- CLI or Lambda tool to replay DLQ items.\n- CloudWatch alarms added for DLQ depth, error rate, latency.\n\n### Codex Prompt\nYou are a senior platform engineer.  \n\n**Issue Reference: Guardrails: Retries, DLQ, Poison-pill, Alarms**  \n\nHarden the webhook ingestion system with recovery mechanisms.  \n\n**Core Tasks**\n1. Extend Lambda configuration with DLQ (SQS).\n2. Implement poison-pill detection logic in Lambda.\n3. Provide replay utility for DLQ items.\n4. Add CloudWatch alarms for DLQ depth, error rate, latency.\n5. Ensure retry/backoff logic from PR #79 remains intact.\n\n**Acceptance Criteria**\n- Failed events routed to DLQ and replayable.\n- Malformed events quarantined safely.\n- Alerts fire on error thresholds.\n- Ingestion pipeline continues processing unaffected.",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "Implement Manual CSV Fallback for Failed JQL Query",
+    "body": "The current audit command relies on a direct API call to Jira to retrieve issues via JQL. We've experienced intermittent failures with this endpoint due to known Atlassian bugs (e.g., JRACLOUD-94876), which can cause the entire audit process to fail.\n\nTo improve the tool's resilience and ensure audits can always be completed, we need to implement a fallback mechanism. If the initial Jira JQL query fails after all retries, the system should prompt the user for a path to a manually exported Jira issues CSV file. The process should then continue by loading the issues from this CSV, bypassing the failed API call.\n\nThis feature is crucial for maintaining the reliability and usability of the ReleaseCopilot tool in production environments.\n\n### Acceptance Criteria\nAPI Failure Detection: The system must detect a failed Jira JQL query (e.g., a 400 Bad Request error) after exhausting its retry attempts.\n\nUser Prompt: Upon failure, the CLI must output a clear, actionable message to the user, explaining the failure and prompting for a file path to a Jira issues CSV export.\n\nCSV Loading: The system must be able to read and parse the provided CSV file, extracting the same Jira issue data that a successful API call would have returned.\n\nWorkflow Continuity: The audit process must continue from the point of failure, using the data from the CSV as if it were returned by the Jira API.\n\nError Handling: If the user provides an invalid file path or a malformed CSV, the system must display an informative error message and terminate gracefully.\n\n### Codex Prompt\nYou are a senior DevOps engineer and an expert Python developer.\n\nIssue Reference: Implement Manual CSV Fallback for Failed JQL Query\n\nYour task is to implement a robust fallback mechanism for the Jira JQL query within the audit command. The goal is to ensure the tool can complete a release audit even when the Jira API is unreliable.\n\nCore Task\nModify the Jira data retrieval logic in audit_from_config.py. The updated workflow should follow these steps:\n\nAttempt to fetch Jira issues using the standard JQL query with the existing retry mechanism.\n\nIf the query fails after all retries, log the error and transition to the fallback workflow.\n\nPrompt the user via the CLI for a local file path to a manually exported CSV file containing the Jira issues.\n\nLoad and parse the issue data from the provided CSV.\n\nContinue the rest of the audit process using the data from the CSV as the source of truth for Jira issues.\n\nImplementation Details\nPrompting: Use a clear, user-friendly prompt.\n\nError Handling: Implement robust error handling for file not found, permission errors, and invalid CSV format.\n\nCode Location: The core logic should be implemented within the audit_from_config.py file, likely within the main function or a new helper function that wraps the Jira API call.\n\nAcceptance Criteria\nThe feature will be considered complete when the following conditions are met:\n\nThe system detects a failed Jira JQL query after exhausting retries.\n\nThe user is prompted for a CSV file path via the CLI.\n\nThe system successfully loads and parses a valid Jira issues CSV file.\n\nThe audit process continues correctly using the CSV data.\n\nThe system handles invalid file paths or malformed CSVs by exiting gracefully with an informative error.",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "Fetch GitHub issues by label and export structured JSON snapshot",
+    "body": "## Summary\r\nImplement a feature that pulls GitHub issues filtered by label and writes a structured JSON artifact that downstream automation (and LLM agents) can consume. This should integrate with the existing tooling conventions in `scripts/` and reuse the GitHub CLI authentication context.\r\n\r\n## Motivation\r\n- Give release automation access to label-scoped issue snapshots for reporting and changelog generation.\r\n- Provide machine-readable context files that align with the `context/` and `reports/` directories described in the project documentation.\r\n- Reduce manual effort required to answer “what’s in scope for label X” during triage.\r\n\r\n## Scope & Approach\r\n1. **Discovery**\r\n   - Review current GitHub integration utilities (e.g., `scripts/`, `clients/`) to determine the best place for the new feature.\r\n   - Confirm configuration patterns (YAML/JSON/env vars) for storing label lists and output paths.\r\n\r\n2. **Implementation**\r\n   - Add a script or module function that accepts one or more labels, fetches matching GitHub issues, and normalizes the results into a deterministic JSON schema with metadata and issue fields.\r\n   - Persist one JSON file per label under `data/issues/` (or configurable path) and ensure directories are created as needed.\r\n   - Include logging and error handling for rate limits or missing labels.\r\n\r\n3. **Testing & Validation**\r\n   - Provide unit or integration tests (mocked responses) verifying label filtering, JSON structure, and empty results handling.\r\n   - Update documentation with usage instructions.\r\n\r\n## Acceptance Criteria\r\n- Running the new command with sample labels (e.g., `--labels bug,frontend`) produces JSON files containing the defined schema and metadata.\r\n- JSON output includes `generated_at`, `repository`, `label`, and issue details (number, title, state, assignees, milestone, updated_at, html_url).\r\n- Tests covering JSON assembly and API wrapper logic are added and passing.\r\n- Documentation explains configuration, invocation, and output location.\r\n\r\n## Open Questions / Follow-ups\r\n- Should the script support pagination limits or a max-issue count?\r\n- Do we include closed issues by default?\r\n- Future enhancement: schedule via GitHub Actions once the base feature lands.\r\n",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Documentation] Add Codex prompt files per module",
+    "body": "Create a folder called prompts/ with .md or .txt files for:\n\nBitbucket client\n\n- Jira client\n- Secrets resolution\n- Streamlit UI\n- Delta tracker\n\nThese prompts can be fed to Codex/ChatGPT later to regenerate or improve functionality. Promotes AI-compatible development practices.\n\nCodex Prompt:\nFor a Python project using AI-assisted dev (Codex), create a folder `prompts/` with:\n- prompt_bitbucket_client.txt\n- prompt_jira_client.txt\n- prompt_config_loader.txt\n- prompt_streamlit_ui.txt\nEach file should include a short natural-language prompt that describes the module's purpose and how to regenerate its code using Codex.\n",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "Draft Streamlit UI skeleton",
+    "body": "Create a minimal Streamlit app to load/export audits. The app should allow users to run the CLI audit via a button, view results in a table, and download the report.\n\nAcceptance Criteria:\n- [ ] app.py with a “Run Audit” button\n- [ ] Table view of summary statistics\n- [ ] “Download Excel/JSON” buttons",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "Research agent frameworks",
+    "body": "Evaluate LangGraph and crewAI for modular agent orchestration. Identify how they can be used to structure Jira/Bitbucket/RAG agents and later integrate with MCP memory.\n\nAcceptance Criteria:\n- [ ] Write short comparison doc (pros/cons, integration strategy)\n- [ ] Create demo agent that wraps Jira client for queries\n- [ ] Recommend framework for future refactor",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[CI] Coverage Gate + PR Summary Comment",
+    "body": "*Description:**  \nIntegrate pytest-cov into CI pipeline. Fail build if coverage < 70% initially (raise later). Use GitHub Actions to post PR comment with coverage % summary.\n\n**Codex Prompt:**  \nImplement pytest-cov integration in `.github/workflows/ci.yml`. Generate `coverage.xml` and upload with `actions/upload-artifact`. Add a step to parse coverage and post a PR comment.  \n\n**Acceptance Criteria:**  \n- CI fails if coverage < 70%.  \n- PRs show coverage summary as a comment.  ",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Unit Tests] Mocked Jira & Bitbucket Clients",
+    "body": "**Description:**  \nAdd unit tests with `pytest` + `responses` (or `pytest-httpx`) to mock Jira/Bitbucket APIs. Ensure clients handle pagination, errors, and retries.\n\n**Codex Prompt:**  \nAdd tests under `tests/clients/` for Jira/Bitbucket API wrappers. Mock HTTP responses to validate pagination, retries, and error handling.  \n\n**Acceptance Criteria:**  \n- Tests pass without real API calls.  \n- Retry logic covered.  \n",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Integration Tests] End-to-End with Cached Payloads",
+    "body": "*Description:**  \nRun E2E test of CLI audit using cached JSON payloads (no network). Verify Excel/JSON reports match expected schema.\n\n**Codex Prompt:**  \nAdd `tests/integration/test_audit_end_to_end.py`. Use sample cached payloads in `tests/fixtures/`. Validate outputs in `dist/`.  \n\n**Acceptance Criteria:**  \n- `pytest -q` passes without network.  \n- Outputs match schema snapshot.",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Contract Tests] Exporter Schema Stability",
+    "body": "**Description:**  \nPrevent breaking changes to JSON/Excel outputs. Add schema contract tests.\n\n**Codex Prompt:**  \nImplement `tests/contract/test_export_schema.py`. Compare generated JSON against baseline schema using `jsonschema`. For Excel, validate required columns.  \n\n**Acceptance Criteria:**  \n- Tests fail on incompatible schema change.  ",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Static Typing] mypy Baseline",
+    "body": "**Description:**  \nIntroduce static typing checks with mypy. Start with `--ignore-missing-imports`. Fail CI on type errors in core modules.\n\n**Codex Prompt:**  \nAdd mypy config in `pyproject.toml`. Update `.github/workflows/ci.yml` to run `mypy src/`.  \n\n**Acceptance Criteria:**  \n- CI fails on new type errors.",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Pre-Commit Hooks] Ruff, Black, Mypy",
+    "body": "**Description:**  \nAdd `.pre-commit-config.yaml` with ruff, black, and mypy hooks. Ensure contributors auto-format code.\n\n**Codex Prompt:**  \nCreate `.pre-commit-config.yaml`. Update `README.md` with installation instructions.  \n\n**Acceptance Criteria:**  \n- `pre-commit run --all-files` passes.  \n- Contributors auto-format with pre-commit.",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[CI Matrix] Python 3.10 & 3.11",
+    "body": "**Description:**  \nEnsure compatibility with Python 3.10 and 3.11 via CI job matrix.\n\n**Codex Prompt:**  \nUpdate `.github/workflows/ci.yml` to define matrix strategy for Python 3.10 and 3.11. Run lint + pytest for both.  \n\n**Acceptance Criteria:**  \n- CI runs jobs on both Python versions. ",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[CI] Smoke Test for Codex Branches",
+    "body": "**Description:**  \nAdd lightweight smoke-test workflow triggered by codex/** branches. Runs lint, tests, synth only. Cancels in-progress runs on same branch.\n\n**Codex Prompt:**  \nCreate `.github/workflows/smoke.yml`. Trigger on `codex/**` branches. Use `concurrency` group keyed to branch. Run lint/tests/synth.  \n\n**Acceptance Criteria:**  \n- Every codex/** push runs smoke checks.  \n- Old jobs canceled on new push.  ",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Uploader] Dry-Run Mode + Smoke Test",
+    "body": "**Description:**  \nEnhance uploader CLI with `--dry-run`. Add CI smoke test to validate outputs without hitting AWS.\n\n**Codex Prompt:**  \nAdd `--dry-run` flag in CLI uploader. If enabled, print what would be uploaded but skip S3. Add CI test to validate behavior.  \n\n**Acceptance Criteria:**  \n- CLI shows dry-run log.  \n- CI test confirms no AWS calls made. ",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[AWS] OIDC for GitHub Actions → Least-Privilege Deploy",
+    "body": "**Acceptance Criteria**  \n- IAM role trust policy allows GH org/repo/env (branch/tag) via OIDC.  \n- Inline/attached policies scoped to CDK deploy needs (DDB table, Secrets read, Logs, S3 prefixes).  \n- CI uses `aws-actions/configure-aws-credentials` with `role-to-assume`.  \n- No static AWS keys stored in GitHub secrets.  \n- Short runbook notes in `docs/`.\n\n**Manual AWS Steps**  \n1. In AWS Console → IAM → Roles → “Create Role”.  \n2. Choose **Web Identity** → Provider = GitHub.  \n3. Enter audience `sts.amazonaws.com`.  \n4. Add condition limiting `sub` to your repo (e.g. `repo:dutchsloot84/ReleaseCopilot-AI:*`).  \n5. Attach **minimal** policies (start with CloudWatch, DynamoDB table, Secrets).  \n6. Save role ARN.  \n7. Test in your workflow using `aws-actions/configure-aws-credentials`.\n\n**Codex Prompt**  \n“Create IAM role for GitHub OIDC (least privilege) and wire in `cdk-ci.yml`. Scope permissions to only DDB, S3, Secrets, Logs needed for deploy.”",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Secrets] Create & Wire Jira/Bitbucket/Webhook Secrets (SM)",
+    "body": "**Acceptance Criteria**  \n- Secrets in SM: `releasecopilot/jira/oauth`, `releasecopilot/bitbucket/token`, `releasecopilot/jira/webhook_secret`.  \n- CDK grants read to specific Lambda(s) only.  \n- `.env.example` documents secret names.  \n- Smoke test proves Lambda can read secrets.  \n- No secrets logged.\n\n**Manual AWS Steps**  \n1. AWS Console → Secrets Manager → “Store a new secret.”  \n2. Select “Other type of secret” → enter key/value pairs.  \n3. Name secrets with prefix `releasecopilot/...`.  \n4. Save, copy ARN.  \n5. Update Lambda execution role policy to allow `secretsmanager:GetSecretValue` on these ARNs.  \n6. Verify in Lambda test that secret loads (don’t log actual secret).  \n\n**Codex Prompt**  \n“Add AWS SM secrets + CDK wiring. Update Lambda to fetch secrets at init with cache. Add smoke test and redact secrets in logs.”",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[DynamoDB] Table Readiness + Idempotency Keys",
+    "body": "**Acceptance Criteria**  \n- Table with `PK=issue_key`, `SK=updated_at`.  \n- PITR enabled.  \n- CDK exports table name/ARN.  \n- Idempotency key strategy documented.\n\n**Manual AWS Steps**  \n1. AWS Console → DynamoDB → Create Table.  \n2. Partition Key: `issue_key` (String). Sort Key: `updated_at` (String).  \n3. Enable point-in-time recovery.  \n4. Optional: Create GSI if you need by `updated_at`.  \n5. Test insert via CLI.  \n\n**Codex Prompt**  \n“Ensure DDB schema supports webhook/bootstraps. Add PITR, least-privilege IAM, and doc on idempotency keys.”",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "SQS DLQ] for Webhook Lambda + Replay Utility",
+    "body": "**Acceptance Criteria**  \n- SQS DLQ attached to webhook Lambda.  \n- Replay CLI/Lambda with metrics.  \n- CloudWatch alarm on DLQ depth.  \n- Runbook for replay steps.\n\n**Manual AWS Steps**  \n1. AWS Console → SQS → Create Queue → Standard. Name: `releasecopilot-dlq`.  \n2. In Lambda → Configuration → Asynchronous invocation → DLQ → select queue.  \n3. Test: push invalid event → check DLQ message.  \n4. Manually replay with AWS CLI.  \n\n**Codex Prompt**  \n“Attach DLQ to webhook Lambda + implement replay tool. Add alarms on DLQ depth and docs for replay.”",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[EventBridge] Phoenix-time Cron + Reconciliation Slot",
+    "body": "**Acceptance Criteria**  \n- EventBridge rule fires nightly aligned to Phoenix time.  \n- Target wired to reconciliation Lambda.  \n- Dry run log proof.  \n- DST behavior noted.\n\n**Manual AWS Steps**  \n1. AWS Console → EventBridge → Rules → Create rule.  \n2. Choose Schedule → Cron expression for midnight Phoenix time.  \n3. Target = reconciliation Lambda.  \n4. Save and test run.  \n5. Check CloudWatch logs.  \n\n**Codex Prompt**  \n“Create nightly EventBridge schedule (Phoenix) to invoke reconciliation Lambda; log schedule metadata.”",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[IAM] Policy Review & Resource-Level Scoping (CDK)",
+    "body": "**Acceptance Criteria**  \n- Policies scoped to exact resources.  \n- Exceptions documented.  \n- cdk-nag optional.\n\n**Manual AWS Steps**  \n1. AWS Console → IAM → Roles → select Lambda role.  \n2. Check inline/attached policies.  \n3. Remove `*` resources, replace with specific ARNs.  \n4. Test Lambda still functions.  \n\n**Codex Prompt**  \n“Review/limit IAM in CDK to resource-level ARNs. Add cdk-nag with annotated suppressions.”",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Logging] Retention, PII Guard, and Structure",
+    "body": "**Acceptance Criteria**  \n- Log retention set (14–30 days).  \n- Structured JSON logs.  \n- Redaction middleware.  \n\n**Manual AWS Steps**  \n1. AWS Console → CloudWatch Logs → Log groups.  \n2. Set retention = 30 days.  \n3. Verify logs are JSON structured.  \n4. Confirm no secrets/PII in logs.  \n\n**Codex Prompt**  \n“Enforce CW retention, structured JSON logs, and redaction middleware. Provide tests for redaction.”",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Budget/Alarms] Low-Ceiling Budget + SNS Notice",
+    "body": "**Acceptance Criteria**  \n- AWS Budgets with 50/80/100% alerts.  \n- SNS/email recipients.  \n- Budget names include env.\n\n**Manual AWS Steps**  \n1. AWS Console → Billing → Budgets → Create budget.  \n2. Choose Cost budget, set low value.  \n3. Add SNS/email recipients.  \n4. Verify notification delivery.  \n\n**Codex Prompt**  \n“Add AWS Budgets with SNS/email alerts; document recipients and thresholds.”",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Metrics Dash] Ingestion & Reconciliation Dashboard",
+    "body": "**Acceptance Criteria**  \n- CW dashboard with ingest, dedup, errors, DLQ depth, drift.  \n- Linked in README/docs.  \n- Saved as CDK construct.\n\n**Manual AWS Steps**  \n1. AWS Console → CloudWatch → Dashboards → Create.  \n2. Add widgets for Lambda metrics, DDB, DLQ.  \n3. Save dashboard.  \n4. Link in README.  \n\n**Codex Prompt**  \n“Create a CW dashboard for ingest/recon metrics; expose as CDK construct and link in docs.”",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Runbook] Webhook Ingest: On-call + Replay",
+    "body": "**Acceptance Criteria**  \n- Steps: rotate secret, replay DLQ, force re-backfill.  \n- Stored in `docs/runbooks/`.  \n- References alarms + dashboards.  \n\n**Manual AWS Steps**  \n1. Draft runbook in Markdown.  \n2. Test by rotating webhook secret manually.  \n3. Walk through DLQ replay.  \n4. Document results.  \n\n**Codex Prompt**  \n“Write operator runbook for webhook ingest (secret rotation, DLQ replay, JQL slice backfill, health checks).”",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Bootstrap] Parameterized JQL Scopes + Checkpointing",
+    "body": "**Acceptance Criteria**  \n- JQL scopes parameterized.  \n- Checkpoint persisted.  \n- Summary artifact created.  \n\n**Manual AWS Steps**  \n1. Ensure S3 bucket exists for checkpoint artifacts.  \n2. Run bootstrap job manually, break mid-run.  \n3. Restart, confirm resume.  \n4. Inspect checkpoint file.  \n\n**Codex Prompt**  \n“Enhance bootstrap job with param JQL scopes, checkpoint persistence, summary artifact, and interrupt/resume test.”",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[S3 Artifact Bucket] Block-Public + Lifecycle + Prefixes",
+    "body": "**Acceptance Criteria**  \n- Block Public ON.  \n- SSE-S3 encryption.  \n- Lifecycle to IA/Glacier.  \n- Prefix convention.  \n\n**Manual AWS Steps**  \n1. AWS Console → S3 → Create bucket.  \n2. Enable Block Public Access.  \n3. Enable encryption = SSE-S3.  \n4. Add lifecycle rule: IA after 30 days, Glacier after 90.  \n5. Add prefix naming scheme.  \n\n**Codex Prompt**  \n“Provision S3 artifacts bucket with block-public, encryption, versioning, lifecycle; define prefix conventions and IAM.”",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  },
+  {
+    "title": "[Custom Domain/TLS] API GW Custom Domain + ACM",
+    "body": "**Acceptance Criteria**  \n- ACM cert created.  \n- API GW custom domain + mapping.  \n- Route53 record.  \n- Doc on cert rotation.  \n\n**Manual AWS Steps**  \n1. AWS Console → ACM → Request cert for domain.  \n2. Validate DNS in Route53.  \n3. API Gateway → Custom Domain → Add mapping.  \n4. Add Route53 alias record.  \n5. Confirm HTTPS works.  \n\n**Codex Prompt**  \n“Add API Gateway custom domain with ACM cert + Route53 mapping; document cert rotation.”  ",
+    "url": null,
+    "status": "Backlog",
+    "updatedAt": null
+  }
+]
