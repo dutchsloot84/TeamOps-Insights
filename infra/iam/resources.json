@@ -1,0 +1,25 @@
+{
+  "accountId": "781047749939",
+  "region": "us-west-2",
+  "bootstrapQualifier": "hnb659fds",
+  "projectPrefix": "ReleaseCopilot",
+  "stacks": [
+    "ReleaseCopilot-Core",
+    "ReleaseCopilot-Lambda"
+  ],
+  "logGroups": [
+    "/aws/lambda/releasecopilot-core",
+    "/aws/lambda/releasecopilot-lambda"
+  ],
+  "dynamoTables": [
+    "ReleaseCopilot-Reports"
+  ],
+  "secrets": [
+    "releasecopilot/jira",
+    "releasecopilot/bitbucket"
+  ],
+  "roles": [
+    "ReleaseCopilot-CoreRole",
+    "ReleaseCopilot-LambdaRole"
+  ]
+}

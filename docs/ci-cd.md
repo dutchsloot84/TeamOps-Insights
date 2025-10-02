@@ -1,54 +1,63 @@
-# CI/CD Workflow Notes
+# ReleaseCopilot CI/CD
 
-## Workflow overview
-- **Workflow file**: `.github/workflows/ci.yml`
-- **Triggers**:
-  - Pushes to `main`, `feature/**`, and `codex/**`
-  - Pull requests targeting `main`
-  - Tags that match `v*.*.*`
-  - Manual `workflow_dispatch` with inputs `run_uploader` (boolean) and `fix_version` (string)
-- **Jobs**:
-  - `python-checks` – always runs, installs dependencies, lints with `ruff check .` (soft fail), and executes `pytest -q`.
-  - `package` – builds `dist/lambda_bundle.zip`, verifies the archive is non-empty, and uploads it for PRs and pushes (longer retention when run from a tag).
-  - `cdk-synth` – creates a Python virtualenv, installs CDK dependencies, installs AWS CDK v2, and runs `cdk synth` from `infra/cdk`.
-  - `optional-uploader` – runs only for manual `workflow_dispatch` events where `run_uploader` is `true`; conditionally configures AWS credentials via OIDC and invokes the ReleaseCopilot uploader CLI.
+This document captures how the ReleaseCopilot infrastructure is validated and deployed with AWS CDK using GitHub Actions and OpenID Connect (OIDC).
 
-## OIDC setup
-1. In AWS IAM, create (or update) a role that trusts your GitHub organisation/repository using the OpenID Connect provider `token.actions.githubusercontent.com`.
-2. Attach the least-privilege permissions required to upload the Lambda bundle to your target S3 bucket.
-3. Save the role ARN as the repository secret `AWS_ROLE_TO_ASSUME`.
-4. Ensure the workflow has `permissions: { contents: read, id-token: write }` whenever OIDC is needed (already configured in `optional-uploader`).
+## Overview
 
-## Required secrets and variables
-- `AWS_ROLE_TO_ASSUME` (secret, optional) – enables the OIDC credential flow for the uploader job.
-- `RC_S3_BUCKET` (secret) – destination bucket for manual uploads; when absent the uploader logs and exits gracefully.
-- `AWS_REGION` (repository or organisation variable) – defaults to `us-west-2` when unset.
+* The CDK application lives in `infra/cdk` and is executed through the portable wrapper `run_cdk_app.py`.
+* GitHub Actions authenticates to AWS via the repository variable `OIDC_ROLE_ARN` and the `aws-actions/configure-aws-credentials` action.
+* The workflow file `.github/workflows/cdk-ci.yml` runs validation on every pull request and performs full deploys on pushes to `main` and semantic tags.
 
-## Manual workflow runs
-1. Open the **CI** workflow in the GitHub Actions tab and select **Run workflow**.
-2. Choose the target branch/tag and optionally enable `run_uploader`.
-3. Provide `fix_version` if you want to override the detected version (otherwise tag names or the current date are used).
-4. When `run_uploader` is enabled, the workflow:
-   - Ensures the Lambda bundle has been built by the `package` job.
-   - Configures AWS credentials via OIDC when `AWS_ROLE_TO_ASSUME` is present.
-   - Invokes `python -m releasecopilot.cli` with `--s3-prefix releasecopilot`, uploading into `s3://$RC_S3_BUCKET/releasecopilot/`.
-   - Skips gracefully when the bucket secret is not provided.
+## Local workflows
 
-## Local smoke tests
-Run these commands before pushing to verify the core CI checks locally:
-- `ruff check .`
-- `pytest -q`
-- `python scripts/package_lambda.py --out dist/lambda_bundle.zip` (or `bash scripts/package_lambda.sh` if the Python helper is unavailable)
-- `cd infra/cdk && cdk synth`
+### Prerequisites
 
-## Guardrails
-- Never place `secrets.*` references inside `if:` expressions. Read them into environment variables first and gate subsequent steps with `env.*`.
-- Keep at least one job unconditional so pull requests and pushes always produce CI feedback.
+* Python 3.11 (or newer) with `pip`
+* Node.js 18+ to run the AWS CDK CLI through `npx`
 
-## CI Quick Runbook
+From the repository root you can run:
+
 ```bash
-ruff check .
-pytest -q
-python scripts/package_lambda.py --out dist/lambda_bundle.zip
-cd infra/cdk && cdk synth
+npm run cdk:list
+npm run cdk:synth
+npm run cdk:deploy:all
 ```
+
+These commands run in the `infra/cdk` directory and invoke the wrapper so that `python` vs. `python3` differences do not matter.
+
+If you need to troubleshoot interpreter mismatches, execute:
+
+```bash
+cd infra/cdk
+python scripts/preflight.py
+```
+
+The preflight script prints the Python binary path, version, and operating system before re-executing `app.py`.
+
+## GitHub Actions workflow
+
+The `cdk-ci` workflow contains two jobs:
+
+1. **validate** – installs dependencies, runs the preflight diagnostics, assumes the deploy role via OIDC, and executes `cdk list`, `cdk synth`, and `cdk diff`. The synthesized output is uploaded as a build artifact when available.
+2. **deploy** – triggered on pushes to `main` or tags matching `v*`; it re-installs dependencies, assumes the same role, and runs `cdk deploy --require-approval never --all`.
+
+Every job sets `permissions: id-token: write` and `contents: read`, and uses the repository variable `OIDC_ROLE_ARN` for the role to assume. The `Who am I` step runs `aws sts get-caller-identity` so you can confirm the workflow assumed the expected role.
+
+## Troubleshooting
+
+| Symptom | Suggested fix |
+| --- | --- |
+| `cdk list` prints usage information | Ensure you are running commands from the repository root through `npm run` (or directly within `infra/cdk`) so that `run_cdk_app.py` is used. |
+| `Could not load credentials` in CI | Confirm the `OIDC_ROLE_ARN` repository variable is set and that the workflow still has `permissions: id-token: write`. |
+| Access denied when uploading CDK assets | Verify the inline policy created from `infra/iam/policies/s3_bootstrap.json` (or generated via `scripts/compose_policies.py`) is attached to the deploy role. |
+
+## Changelog
+
+* 2024-05-19 – Added a preflight guard in `.github/workflows/cdk-ci.yml` that checks for `cdk.json`, prints the resolved app command, installs dependencies, and runs `cdk doctor` before executing verbose `cdk list`.
+* 2024-05-18 – Removed the temporary diagnostic inventory job after validating least-privilege deploys. See the [successful deploy run](https://github.com/ReleaseCopilot/ReleaseCopilot-AI/actions/workflows/cdk-ci.yml?query=branch%3Amain+is%3Asuccess) for confirmation.
+
+## Historian
+
+* **Decisions** – Adopted OIDC for all CDK deploys and centralized on a single `cdk-ci` workflow.
+* **Notes** – Diagnostic inventory output is no longer collected automatically; refer to the retained IAM policy templates for least-privilege updates.
+* **Actions** – Continue to maintain the inline policies generated from `scripts/compose_policies.py` and adjust permissions as new infrastructure components are introduced.

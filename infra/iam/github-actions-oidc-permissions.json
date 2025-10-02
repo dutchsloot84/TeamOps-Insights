@@ -1,0 +1,121 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudFormationDeployLimited",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:CreateChangeSet",
+        "cloudformation:CreateStack",
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:DeleteStack",
+        "cloudformation:Describe*",
+        "cloudformation:ExecuteChangeSet",
+        "cloudformation:GetTemplate",
+        "cloudformation:List*",
+        "cloudformation:UpdateStack",
+        "cloudformation:ValidateTemplate"
+      ],
+      "Resource": "arn:aws:cloudformation:${aws:Region}:${aws:AccountId}:stack/releasecopilot-ai-*/*"
+    },
+    {
+      "Sid": "BootstrapBucketList",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketLocation",
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::cdk-hnb659fds-assets-${aws:AccountId}-${aws:Region}"
+    },
+    {
+      "Sid": "BootstrapBucketObjectsRW",
+      "Effect": "Allow",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::cdk-hnb659fds-assets-${aws:AccountId}-${aws:Region}/*"
+    },
+    {
+      "Sid": "ProjectRoleManagement",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:PassRole",
+        "iam:PutRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole"
+      ],
+      "Resource": "arn:aws:iam::${aws:AccountId}:role/ReleaseCopilot-*"
+    },
+    {
+      "Sid": "ProjectPolicyManagement",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreatePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListPolicyVersions",
+        "iam:TagPolicy",
+        "iam:UntagPolicy"
+      ],
+      "Resource": "arn:aws:iam::${aws:AccountId}:policy/ReleaseCopilot-*"
+    },
+    {
+      "Sid": "DdbRWSpecificTables",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:BatchWriteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:${aws:Region}:${aws:AccountId}:table/releasecopilot-ai-core-JiraIssuesTable*",
+        "arn:aws:dynamodb:${aws:Region}:${aws:AccountId}:table/releasecopilot-ai-core-JiraIssuesTable*/index/*"
+      ]
+    },
+    {
+      "Sid": "SecretsReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:${aws:Region}:${aws:AccountId}:secret:releasecopilot-ai/oauth-*",
+        "arn:aws:secretsmanager:${aws:Region}:${aws:AccountId}:secret:releasecopilot-ai-core-JiraSecret*",
+        "arn:aws:secretsmanager:${aws:Region}:${aws:AccountId}:secret:releasecopilot-ai-core-BitbucketSecret*",
+        "arn:aws:secretsmanager:${aws:Region}:${aws:AccountId}:secret:releasecopilot-ai-core-JiraWebhookSecret*"
+      ]
+    },
+    {
+      "Sid": "LogsWriteSpecificGroups",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:DescribeLogStreams",
+        "logs:PutLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:${aws:Region}:${aws:AccountId}:log-group:/aws/lambda/releasecopilot-ai-lambda-AuditLambda*",
+        "arn:aws:logs:${aws:Region}:${aws:AccountId}:log-group:/aws/lambda/releasecopilot-ai-lambda-AuditLambda*:log-stream:*"
+      ]
+    }
+  ]
+}
