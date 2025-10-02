@@ -53,6 +53,7 @@ Every job sets `permissions: id-token: write` and `contents: read`, and uses the
 
 ## Changelog
 
+* 2024-05-19 – Added a preflight guard in `.github/workflows/cdk-ci.yml` that checks for `cdk.json`, prints the resolved app command, installs dependencies, and runs `cdk doctor` before executing verbose `cdk list`.
 * 2024-05-18 – Removed the temporary diagnostic inventory job after validating least-privilege deploys. See the [successful deploy run](https://github.com/ReleaseCopilot/ReleaseCopilot-AI/actions/workflows/cdk-ci.yml?query=branch%3Amain+is%3Asuccess) for confirmation.
 
 ## Historian
