@@ -9,6 +9,7 @@ from pathlib import Path
 
 def main() -> None:
     app_path = Path(__file__).resolve().parent / "app.py"
+    os.chdir(app_path.parent)
     argv = [sys.executable, str(app_path), *sys.argv[1:]]
     os.execv(sys.executable, argv)
 

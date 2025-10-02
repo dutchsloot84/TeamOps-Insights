@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from aws_cdk import App, Environment
@@ -123,7 +124,7 @@ def _resolve_environment(app: App, context: Dict[str, Any]) -> Tuple[Optional[st
     return account, region
 
 
-app = App()
+app = App(outdir=str(Path(__file__).resolve().parent / "cdk.out"))
 context = _load_context(app)
 
 account_id, region = _resolve_environment(app, context)
