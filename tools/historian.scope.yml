@@ -1,0 +1,11 @@
+globs:
+  - scripts/generate_history.py
+  - docs/git-historian.md
+  - config/defaults.yml
+  - .github/workflows/weekly-history.yml
+  - docs/history/**
+  - docs/context/**
+  - templates/**
+notes:
+  - "Historian CLI entrypoint is generate_history.py; migrate to src/git_historian/cli.py"
+  - "Outputs live in docs/history and docs/context/context-index.json"
