@@ -31,9 +31,6 @@ jobs:
   validate:
     name: Validate CDK app
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: infra/cdk
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -94,47 +91,12 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash scripts/ci/check_single_cdk_json.sh
 
-      - name: Preflight — validate canonical app
-        run: |
-          echo "PWD=$(pwd)"
-          ls -la
-
-          if [ ! -f cdk.json ]; then
-            echo "::error::Missing infra/cdk/cdk.json"
-            exit 1
-          fi
-
-          echo "cdk.json:"
-          cat cdk.json
-          APP=$(jq -r '.app // empty' cdk.json || true)
-          if [ -z "$APP" ] || [ "$APP" = "null" ]; then
-            echo "::error::cdk.json exists but \"app\" is empty/missing."
-            exit 1
-          fi
-          echo "Raw app from cdk.json: $APP"
-
-          # Enforce python3 on GH runners (replace leading `python ` with `python3 `)
-          if echo "$APP" | grep -qE '^python(\s|$)'; then
-            APP="python3${APP#python}"
-            echo "Normalized app to use python3: $APP"
-          fi
-
-          # Validate that the referenced script exists
-          # Extract the first non-option arg after python3 for path check
-          FIRST_ARG=$(awk '{for(i=1;i<=NF;i++){if($i ~ /\.py$/){print $i; exit}}}' <<< "$APP")
-          if [ -n "$FIRST_ARG" ]; then
-            if [ ! -f "$FIRST_ARG" ]; then
-              echo "::error::App entry file not found: $FIRST_ARG (from app: \"$APP\")"
-              exit 1
-            fi
-          else
-            echo "::warning::Could not automatically detect a .py entry file from app. Ensure it exists."
-          fi
-
-          # Export for subsequent steps
-          echo "APP=$APP" >> $GITHUB_ENV
+      - name: Verify CDK entrypoint
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/ci/verify_cdk_entrypoint.sh
 
       - name: Install Python deps (CDK app)
+        working-directory: infra/cdk
         run: |
           python3 -V
           if [ -f requirements.txt ]; then
@@ -147,20 +109,23 @@ jobs:
 
       - name: Install Node deps (if Node app)
         if: ${{ hashFiles('infra/cdk/package.json') != '' }}
+        working-directory: infra/cdk
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
           if jq -e '.scripts.build' package.json >/dev/null 2>&1; then npm run build; fi
 
       - name: Python preflight
+        working-directory: infra/cdk
         run: |
           python3 scripts/preflight.py
           python3 run_cdk_app.py --help || true
 
       - name: CDK doctor
         run: |
+          eval "set -- $CDK_CONTEXT_ARGS_SHELL"
           npx -y aws-cdk@2 cdk --version
-          npx -y aws-cdk@2 cdk doctor || true
-          cat cdk.context.json || true
+          npx -y aws-cdk@2 cdk doctor -a "$APP" "$@" || true
+          cat infra/cdk/cdk.context.json || true
 
       - name: Configure AWS credentials
         if: env.OIDC_ROLE_ARN != ''
@@ -174,22 +139,22 @@ jobs:
         if: env.OIDC_ROLE_ARN != ''
         run: aws sts get-caller-identity
 
-      - name: CDK list (verbose with fallback)
+      - name: CDK list
         run: |
           set -e
-          echo "Attempt 1: cdk -v list"
-          if ! npx -y aws-cdk@2 cdk -v list; then
-            echo "Attempt 1 failed; trying explicit -a"
-            echo "Using APP from env: $APP"
-            npx -y aws-cdk@2 cdk -v -a "$APP" list
-          fi
+          eval "set -- $CDK_CONTEXT_ARGS_SHELL"
+          npx -y aws-cdk@2 cdk -v -a "$APP" "$@" list
 
       - name: CDK synth
-        run: npx -y aws-cdk@2 cdk synth
+        run: |
+          eval "set -- $CDK_CONTEXT_ARGS_SHELL"
+          npx -y aws-cdk@2 cdk -a "$APP" "$@" synth
 
       - name: CDK diff
         continue-on-error: true
-        run: npx -y aws-cdk@2 cdk diff || true
+        run: |
+          eval "set -- $CDK_CONTEXT_ARGS_SHELL"
+          npx -y aws-cdk@2 cdk -a "$APP" "$@" diff || true
 
       - name: Upload synthesized app
         if: always() && hashFiles('infra/cdk/cdk.out/**') != ''
@@ -205,9 +170,6 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    defaults:
-      run:
-        working-directory: infra/cdk
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -256,43 +218,12 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash scripts/ci/check_single_cdk_json.sh
 
-      - name: Preflight — validate canonical app
-        run: |
-          echo "PWD=$(pwd)"
-          ls -la
-
-          if [ ! -f cdk.json ]; then
-            echo "::error::Missing infra/cdk/cdk.json"
-            exit 1
-          fi
-
-          echo "cdk.json:"
-          cat cdk.json
-          APP=$(jq -r '.app // empty' cdk.json || true)
-          if [ -z "$APP" ] || [ "$APP" = "null" ]; then
-            echo "::error::cdk.json exists but \"app\" is empty/missing."
-            exit 1
-          fi
-          echo "Raw app from cdk.json: $APP"
-
-          if echo "$APP" | grep -qE '^python(\s|$)'; then
-            APP="python3${APP#python}"
-            echo "Normalized app to use python3: $APP"
-          fi
-
-          FIRST_ARG=$(awk '{for(i=1;i<=NF;i++){if($i ~ /\.py$/){print $i; exit}}}' <<< "$APP")
-          if [ -n "$FIRST_ARG" ]; then
-            if [ ! -f "$FIRST_ARG" ]; then
-              echo "::error::App entry file not found: $FIRST_ARG (from app: \"$APP\")"
-              exit 1
-            fi
-          else
-            echo "::warning::Could not automatically detect a .py entry file from app. Ensure it exists."
-          fi
-
-          echo "APP=$APP" >> $GITHUB_ENV
+      - name: Verify CDK entrypoint
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/ci/verify_cdk_entrypoint.sh
 
       - name: Install Python deps (CDK app)
+        working-directory: infra/cdk
         run: |
           python3 -V
           if [ -f requirements.txt ]; then
@@ -305,20 +236,23 @@ jobs:
 
       - name: Install Node deps (if Node app)
         if: ${{ hashFiles('infra/cdk/package.json') != '' }}
+        working-directory: infra/cdk
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
           if jq -e '.scripts.build' package.json >/dev/null 2>&1; then npm run build; fi
 
       - name: Python preflight
+        working-directory: infra/cdk
         run: |
           python3 scripts/preflight.py
           python3 run_cdk_app.py --help || true
 
       - name: CDK doctor
         run: |
+          eval "set -- $CDK_CONTEXT_ARGS_SHELL"
           npx -y aws-cdk@2 cdk --version
-          npx -y aws-cdk@2 cdk doctor || true
-          cat cdk.context.json || true
+          npx -y aws-cdk@2 cdk doctor -a "$APP" "$@" || true
+          cat infra/cdk/cdk.context.json || true
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -330,15 +264,13 @@ jobs:
       - name: Who am I
         run: aws sts get-caller-identity
 
-      - name: CDK list (verbose with fallback)
+      - name: CDK list
         run: |
           set -e
-          echo "Attempt 1: cdk -v list"
-          if ! npx -y aws-cdk@2 cdk -v list; then
-            echo "Attempt 1 failed; trying explicit -a"
-            echo "Using APP from env: $APP"
-            npx -y aws-cdk@2 cdk -v -a "$APP" list
-          fi
+          eval "set -- $CDK_CONTEXT_ARGS_SHELL"
+          npx -y aws-cdk@2 cdk -v -a "$APP" "$@" list
 
       - name: CDK deploy all stacks
-        run: npx -y aws-cdk@2 cdk deploy --require-approval never --all
+        run: |
+          eval "set -- $CDK_CONTEXT_ARGS_SHELL"
+          npx -y aws-cdk@2 cdk -a "$APP" "$@" deploy --require-approval never --all
