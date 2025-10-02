@@ -36,7 +36,13 @@ jobs:
             git config user.email "actions@users.noreply.github.com"
             git add docs/history/notes
             git commit -m "chore(notes): mirror decisions from issues/prs"
-            git push
+            branch="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+            if [ -z "$branch" ]; then
+              echo "::error::Unable to determine target branch for push"
+              exit 1
+            fi
+            git checkout "$branch"
+            git push origin "$branch"
           else
             echo "No notes changes detected."
           fi
