@@ -94,6 +94,10 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash scripts/ci/check_single_cdk_json.sh
 
+      - name: Verify CDK entrypoint
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/ci/verify_cdk_entrypoint.sh
+
       - name: Preflight — validate canonical app
         run: |
           echo "PWD=$(pwd)"
