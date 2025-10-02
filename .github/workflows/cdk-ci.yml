@@ -95,35 +95,33 @@ jobs:
         run: bash scripts/ci/check_single_cdk_json.sh
 
       - name: Preflight — validate canonical app
+        working-directory: ${{ github.workspace }}
         run: |
           echo "PWD=$(pwd)"
-          ls -la
+          ls -la infra/cdk
 
-          if [ ! -f cdk.json ]; then
+          if [ ! -f infra/cdk/cdk.json ]; then
             echo "::error::Missing infra/cdk/cdk.json"
             exit 1
           fi
 
-          echo "cdk.json:"
-          cat cdk.json
-          APP=$(jq -r '.app // empty' cdk.json || true)
+          echo "infra/cdk/cdk.json:"
+          cat infra/cdk/cdk.json
+          APP=$(jq -r '.app // empty' infra/cdk/cdk.json || true)
           if [ -z "$APP" ] || [ "$APP" = "null" ]; then
-            echo "::error::cdk.json exists but \"app\" is empty/missing."
+            echo "::error::infra/cdk/cdk.json exists but \"app\" is empty/missing."
             exit 1
           fi
           echo "Raw app from cdk.json: $APP"
 
-          # Enforce python3 on GH runners (replace leading `python ` with `python3 `)
           if echo "$APP" | grep -qE '^python(\s|$)'; then
             APP="python3${APP#python}"
             echo "Normalized app to use python3: $APP"
           fi
 
-          # Validate that the referenced script exists
-          # Extract the first non-option arg after python3 for path check
           FIRST_ARG=$(awk '{for(i=1;i<=NF;i++){if($i ~ /\.py$/){print $i; exit}}}' <<< "$APP")
           if [ -n "$FIRST_ARG" ]; then
-            if [ ! -f "$FIRST_ARG" ]; then
+            if [ ! -f "$FIRST_ARG" ] && [ ! -f "infra/cdk/$FIRST_ARG" ]; then
               echo "::error::App entry file not found: $FIRST_ARG (from app: \"$APP\")"
               exit 1
             fi
@@ -131,8 +129,11 @@ jobs:
             echo "::warning::Could not automatically detect a .py entry file from app. Ensure it exists."
           fi
 
-          # Export for subsequent steps
           echo "APP=$APP" >> $GITHUB_ENV
+
+      - name: Verify CDK entrypoint
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/ci/verify_cdk_entrypoint.sh
 
       - name: Install Python deps (CDK app)
         run: |
