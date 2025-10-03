@@ -515,34 +515,118 @@ def _extract_comment_markers(
         author = (comment.get("user") or {}).get("login")
         url = comment.get("html_url")
         comment_id = str(comment.get("id") or comment.get("node_id") or "")
-        for index, line in enumerate(body.splitlines()):
-            stripped = line.strip()
+        lines = body.splitlines()
+        line_total = len(lines)
+        index = 0
+        while index < line_total:
+            stripped = lines[index].strip()
             if not stripped:
+                index += 1
                 continue
+            matched_marker = None
             for marker in marker_prefixes:
                 if stripped.startswith(marker):
-                    detail = stripped[len(marker) :].strip()
-                    label = marker.rstrip(":")
+                    matched_marker = marker
+                    break
+            if not matched_marker:
+                index += 1
+                continue
+            detail_text = stripped[len(matched_marker) :].strip()
+            label = matched_marker.rstrip(":")
+            if detail_text:
+                results.append(
+                    NoteMarker(
+                        updated=updated,
+                        marker=label,
+                        detail=detail_text,
+                        status=status,
+                        number=number,
+                        item_type=item_type,
+                        url=url,
+                        author=author,
+                        comment_id=comment_id,
+                        line_index=index,
+                    )
+                )
+                index += 1
+                continue
+
+            # Block-style markers – capture following bullet items until the next marker.
+            search_index = index + 1
+            while search_index < line_total and not lines[search_index].strip():
+                search_index += 1
+
+            while search_index < line_total:
+                candidate = lines[search_index]
+                candidate_stripped = candidate.strip()
+                if not candidate_stripped:
+                    break
+                if any(
+                    candidate_stripped.startswith(prefix) for prefix in marker_prefixes
+                ):
+                    break
+                if not candidate.lstrip().startswith("-"):
+                    break
+
+                bullet_start = search_index
+                bullet_lines: List[str] = []
+                first_line = candidate.lstrip()[1:].lstrip()
+                bullet_lines.append(first_line)
+                search_index += 1
+
+                while search_index < line_total:
+                    continuation = lines[search_index]
+                    continuation_stripped = continuation.strip()
+                    if not continuation_stripped:
+                        break
+                    if any(
+                        continuation_stripped.startswith(prefix)
+                        for prefix in marker_prefixes
+                    ):
+                        break
+                    if continuation.lstrip().startswith("-"):
+                        break
+                    bullet_lines.append(continuation.strip())
+                    search_index += 1
+
+                detail_value = "\n".join(bullet_lines).strip()
+                if detail_value:
                     results.append(
                         NoteMarker(
                             updated=updated,
                             marker=label,
-                            detail=detail,
+                            detail=detail_value,
                             status=status,
                             number=number,
                             item_type=item_type,
                             url=url,
                             author=author,
                             comment_id=comment_id,
-                            line_index=index,
+                            line_index=bullet_start,
                         )
                     )
+
+                if search_index >= line_total:
+                    break
+                if not lines[search_index].strip():
+                    break
+                if any(
+                    lines[search_index].strip().startswith(prefix)
+                    for prefix in marker_prefixes
+                ):
+                    break
+                if not lines[search_index].lstrip().startswith("-"):
+                    break
+
+            index = search_index
+        # end while index
     return results
 
 
 def _format_note_entry(marker: NoteMarker, annotate_group: bool) -> str:
     if marker.detail:
-        entry = f"- **{marker.marker}:** {marker.detail}"
+        detail = marker.detail.replace("\n", "\n  ")
+        entry = f"- **{marker.marker}:** {detail}"
     else:
         entry = f"- **{marker.marker}**"
     meta_parts: List[str] = []
