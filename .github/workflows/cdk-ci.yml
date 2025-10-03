@@ -26,6 +26,8 @@ jobs:
       contents: read
     env:
       AWS_REGION: us-west-2
+      NPX_YES: "1"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
