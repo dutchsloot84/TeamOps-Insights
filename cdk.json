@@ -1,5 +1,5 @@
 {
-  "app": "python infra/cdk/app.py",
+  "app": "python -m infra.cdk.app",
   "context": {
     "env": "dev",
     "region": "us-west-2",

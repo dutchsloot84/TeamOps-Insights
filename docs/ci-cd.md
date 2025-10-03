@@ -4,7 +4,7 @@ This document captures how the ReleaseCopilot infrastructure is validated and de
 
 ## Overview
 
-* The CDK application lives in `infra/cdk` and is executed directly via `python infra/cdk/app.py` as declared in the root `cdk.json`.
+* The CDK application lives in `infra/cdk` and is executed via `python -m infra.cdk.app` as declared in the root `cdk.json`.
 * GitHub Actions authenticates to AWS via the repository variable `OIDC_ROLE_ARN` and the `aws-actions/configure-aws-credentials` action.
 * The workflow file `.github/workflows/cdk-ci.yml` runs validation on every pull request and performs full deploys on pushes to `main` and semantic tags.
 
@@ -18,12 +18,14 @@ This document captures how the ReleaseCopilot infrastructure is validated and de
 From the repository root you can run:
 
 ```bash
+npm run cdk:venv
 npm run cdk:list
 npm run cdk:synth
-npm run cdk:deploy:all
+npm run cdk:diff
+npm run cdk:deploy
 ```
 
-These commands operate from the repository root and rely on CDK's default discovery of the root-level `cdk.json`. No wrapper is required, so both local developers and CI use the exact same entry point.
+These commands operate from the repository root and rely on CDK's default discovery of the root-level `cdk.json`. The `cdk:venv` helper bootstraps a virtual environment with the CDK dependencies, and the remaining scripts call the CDK CLI directly so local developers and CI use the exact same entry point.
 
 ## GitHub Actions workflow
 

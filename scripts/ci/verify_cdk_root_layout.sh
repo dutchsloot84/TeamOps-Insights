@@ -9,12 +9,53 @@ if [[ ! -f cdk.json ]]; then
   exit 1
 fi
 
-APP_COMMAND=$(node -e "const c=require('./cdk.json'); if(!c.app){process.exit(1)} console.log(c.app)") || {
+APP_COMMAND=$(python - <<'PY'
+import json
+import sys
+
+with open('cdk.json', 'r', encoding='utf-8') as fh:
+    data = json.load(fh)
+
+app = data.get('app')
+if not isinstance(app, str) or not app.strip():
+    sys.exit(1)
+
+print(app.strip())
+PY
+) || {
   echo "::error::Unable to read app command from cdk.json" >&2
   exit 1
 }
 
-APP_ENTRY=$(node -e "const c=require('./cdk.json'); const parts=(c.app||'').split(' '); console.log(parts.slice(1).join(' '))")
+APP_ENTRY=$(python - <<'PY'
+import json
+import pathlib
+import shlex
+import sys
+
+with open('cdk.json', 'r', encoding='utf-8') as fh:
+    command = json.load(fh).get('app', '')
+
+parts = shlex.split(command)
+if not parts:
+    sys.exit(1)
+
+args = parts[1:]
+if not args:
+    sys.exit(1)
+
+entry = None
+if args[0] == '-m':
+    if len(args) < 2:
+        sys.exit(1)
+    module = args[1]
+    entry = pathlib.Path(*module.split('.')).with_suffix('.py')
+else:
+    entry = pathlib.Path(args[0])
+
+print(entry.as_posix())
+PY
+)
 
 if [[ -z "${APP_ENTRY}" ]]; then
   echo "::error::Unable to resolve app entry from command '${APP_COMMAND}'" >&2

@@ -30,5 +30,5 @@ npx cdk list
 ```
 
 If the `cdk list` command fails locally, execute the `app` command printed by
-the verification script (for example `python infra/cdk/app.py`) to inspect the
+the verification script (for example `python -m infra.cdk.app`) to inspect the
 underlying stack trace before retrying the CDK CLI.
