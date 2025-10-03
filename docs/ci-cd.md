@@ -18,6 +18,30 @@ This document captures how the ReleaseCopilot infrastructure is validated and de
 From the repository root you can run:
 
 ```bash
+npm run cdk:list
+npm run cdk:synth
+npm run cdk:deploy:all
+```
+
+These commands run in the `infra/cdk` directory and invoke the wrapper so that `python` vs. `python3` differences do not matter.
+
+If you need to troubleshoot interpreter mismatches, execute:
+
+```bash
+cd infra/cdk
+python scripts/preflight.py
+```
+
+The preflight script prints the Python binary path, version, and operating system before re-executing `app.py`.
+
+## GitHub Actions workflow
+
+The `cdk-ci` workflow contains two jobs:
+
+1. **validate** – installs dependencies, runs the preflight diagnostics, assumes the deploy role via OIDC, and executes `cdk list`, `cdk synth`, and `cdk diff`. The synthesized output is uploaded as a build artifact when available.
+2. **deploy** – triggered on pushes to `main` or tags matching `v*`; it re-installs dependencies, assumes the same role, and runs `cdk deploy --require-approval never --all`.
+
+Every job sets `permissions: id-token: write` and `contents: read`, and uses the repository variable `OIDC_ROLE_ARN` for the role to assume. The `Who am I` step runs `aws sts get-caller-identity` so you can confirm the workflow assumed the expected role.
 npm run cdk:venv
 npm run cdk:list
 npm run cdk:synth
