@@ -12,4 +12,6 @@ npm run cdk:diff
 npm run cdk:deploy
 ```
 
-These commands rely on CDK's default auto-discovery, so no additional `-a` flags or wrapper scripts are required. Run `npm run cdk:venv` whenever dependencies change to refresh the virtual environment. Ensure Python 3.11 and Node.js 20 are installed locally so the CLI matches the GitHub Actions environment.
+These commands rely on CDK's default auto-discovery, so no additional `-a` flags or wrapper scripts are required. Run `npm run cdk:venv` whenever dependencies change to refresh the virtual environment.
+
+> **Runtime requirement:** Install Python 3.11 and Node.js 20 LTS (20.x) locally so the CLI matches the GitHub Actions runners. After switching Node versions with tools like `nvm`, `fnm`, or Volta, confirm the runtime with `node --version`—the output should start with `v20`.

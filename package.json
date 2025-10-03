@@ -2,6 +2,10 @@
   "name": "releasecopilot-ai",
   "private": true,
   "version": "0.0.0",
+  "engines": {
+    "node": ">=20 <25",
+    "npm": ">=9"
+  },
   "scripts": {
     "cdk:venv": "python -m venv .venv && . .venv/bin/activate && python -m pip install -U pip && pip install -r infra/cdk/requirements.txt",
     "cdk:list": "npx --yes cdk list",
