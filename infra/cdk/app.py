@@ -1,18 +1,17 @@
+#!/usr/bin/env python
+
 """CDK application entrypoint for the ReleaseCopilot infrastructure."""
 from __future__ import annotations
 
 import os
 from typing import Any, Dict, Optional, Tuple
 
-from aws_cdk import App, Environment
+import aws_cdk as cdk
 
-try:
-    from .core_stack import CoreStack
-except ImportError:  # pragma: no cover
-    from core_stack import CoreStack  # type: ignore
+from infra.cdk.core_stack import CoreStack
 
 
-def _context(app: App, key: str, default: Any) -> Any:
+def _context(app: cdk.App, key: str, default: Any) -> Any:
     value = app.node.try_get_context(key)
     return default if value is None else value
 
@@ -32,7 +31,7 @@ def _to_bool(value: Any) -> bool:
     return bool(value)
 
 
-def _load_context(app: App) -> Dict[str, Any]:
+def _load_context(app: cdk.App) -> Dict[str, Any]:
     return {
         "env": str(_context(app, "env", "dev")),
         "region": str(_context(app, "region", "us-west-2")),
@@ -42,7 +41,7 @@ def _load_context(app: App) -> Dict[str, Any]:
         "bitbucketSecretArn": str(_context(app, "bitbucketSecretArn", "")),
         "scheduleEnabled": _to_bool(_context(app, "scheduleEnabled", False)),
         "scheduleCron": str(_context(app, "scheduleCron", "")),
-        "lambdaAssetPath": str(_context(app, "lambdaAssetPath", "../../dist")),
+        "lambdaAssetPath": str(_context(app, "lambdaAssetPath", "dist")),
         "lambdaHandler": str(_context(app, "lambdaHandler", "main.handler")),
         "lambdaTimeoutSec": int(_context(app, "lambdaTimeoutSec", 180)),
         "lambdaMemoryMb": int(_context(app, "lambdaMemoryMb", 512)),
@@ -82,7 +81,7 @@ def _aws_identity(region_hint: Optional[str]) -> Tuple[Optional[str], Optional[s
     return identity.get("Account"), resolved_region
 
 
-def _resolve_environment(app: App, context: Dict[str, Any]) -> Tuple[Optional[str], str]:
+def _resolve_environment(app: cdk.App, context: Dict[str, Any]) -> Tuple[Optional[str], str]:
     account = _optional_str(context.get("account"))
     region = _optional_str(context.get("region"))
 
@@ -123,7 +122,7 @@ def _resolve_environment(app: App, context: Dict[str, Any]) -> Tuple[Optional[st
     return account, region
 
 
-app = App()
+app = cdk.App()
 context = _load_context(app)
 
 account_id, region = _resolve_environment(app, context)
@@ -131,7 +130,7 @@ account_id, region = _resolve_environment(app, context)
 bucket_suffix = f"-{account_id}" if account_id else ""
 bucket_name = f"{context['bucketBase']}{bucket_suffix}"
 
-environment = Environment(account=account_id, region=region)
+environment = cdk.Environment(account=account_id, region=region)
 
 CoreStack(
     app,

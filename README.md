@@ -210,7 +210,7 @@ Infrastructure for the audit workflow is defined in `infra/cdk`. Each AWS enviro
 
 `infra/cdk/app.py` automatically works out the deployment account and region, but `cdk synth` still needs one of the following to succeed:
 
-1. **CDK context:** supply `account`/`region` in `infra/cdk/cdk.json`, an `infra/envs/<env>.json` file, or via CLI flags, e.g. `cdk synth -c account=123456789012 -c region=us-west-2`.
+1. **CDK context:** supply `account`/`region` in `cdk.json`, an `infra/envs/<env>.json` file, or via CLI flags, e.g. `cdk synth -c account=123456789012 -c region=us-west-2`.
 2. **AWS credentials:** run `aws configure`, `aws sso login`, or export environment variables so that `boto3` can call `sts:GetCallerIdentity`. The resolved identity is used for the CDK environment automatically.
 3. **Explicit environment variables:** export `CDK_DEFAULT_ACCOUNT` (and optionally `CDK_DEFAULT_REGION`) before invoking `cdk synth`.
 
@@ -275,14 +275,16 @@ Edit pages under `docs/` and push to `main` — the site republish is automated 
 ### Deploying with CDK (dev)
 
 ```bash
-cd infra/cdk
 python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\Activate
-pip install -r requirements.txt
-cdk bootstrap
+pip install -r infra/cdk/requirements.txt
+npx --yes cdk bootstrap
 pytest -q
-cdk synth
-cdk deploy --require-approval never
+npx --yes cdk synth
+npx --yes cdk deploy --require-approval never
 
 # override context if needed
-cdk deploy   --context bucketBase=releasecopilot-artifacts   --context jiraSecretArn=arn:aws:secretsmanager:...   --context bitbucketSecretArn=arn:aws:secretsmanager:...
+npx --yes cdk deploy \
+  --context bucketBase=releasecopilot-artifacts \
+  --context jiraSecretArn=arn:aws:secretsmanager:... \
+  --context bitbucketSecretArn=arn:aws:secretsmanager:...
 ```

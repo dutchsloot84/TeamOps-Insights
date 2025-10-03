@@ -1,10 +1,10 @@
 {
-  "app": "python infra/cdk/run_cdk_app.py",
+  "app": "python -m infra.cdk.app",
   "context": {
     "env": "dev",
     "region": "us-west-2",
     "bucketBase": "releasecopilot-artifacts",
-    "lambdaAssetPath": "../../dist",
+    "lambdaAssetPath": "dist",
     "lambdaHandler": "main.handler",
     "jiraSecretArn": "",
     "bitbucketSecretArn": "",

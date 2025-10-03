@@ -40,7 +40,7 @@ class CoreStack(Stack):
         bucket_name: str,
         jira_secret_arn: Optional[str] = None,
         bitbucket_secret_arn: Optional[str] = None,
-        lambda_asset_path: str = "../../dist",
+        lambda_asset_path: str = "dist",
         lambda_handler: str = "main.handler",
         lambda_timeout_sec: int = 180,
         lambda_memory_mb: int = 512,
