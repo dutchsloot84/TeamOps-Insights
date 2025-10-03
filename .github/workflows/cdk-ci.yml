@@ -96,14 +96,14 @@ jobs:
           echo "PWD=$(pwd)"
           ls -la
 
-          if [ ! -f cdk.json ]; then
+          if [ ! -f infra/cdk/cdk.json ]; then
             echo "::error::Missing infra/cdk/cdk.json"
             exit 1
           fi
 
           echo "cdk.json:"
-          cat cdk.json
-          APP=$(jq -r '.app // empty' cdk.json || true)
+          cat infra/cdk/cdk.json
+          APP=$(jq -r '.app // empty' infra/cdk/cdk.json || true)
           if [ -z "$APP" ] || [ "$APP" = "null" ]; then
             echo "::error::cdk.json exists but \"app\" is empty/missing."
             exit 1
