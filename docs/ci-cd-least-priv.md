@@ -50,7 +50,7 @@ aws iam detach-role-policy --role-name <deploy-role-name> --policy-arn arn:aws:i
 aws iam detach-role-policy --role-name <deploy-role-name> --policy-arn arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess
 ```
 
-Re-run the `cdk-ci` workflow (or `npm run cdk:deploy:all`) to confirm that deploys succeed with the inline policies only. Keep the diagnostic job enabled until you have validated at least one successful deployment with the restricted permissions.
+Re-run the `cdk-ci` workflow (or `npm run cdk:deploy`) to confirm that deploys succeed with the inline policies only. Keep the diagnostic job enabled until you have validated at least one successful deployment with the restricted permissions.
 
 ## Historian
 

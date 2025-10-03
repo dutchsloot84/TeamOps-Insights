@@ -18,11 +18,11 @@ services for integration testing. Refer to the root README for detailed steps.
 ### Local Workflow
 
 ```bash
-cd infra/cdk
-pip install -r requirements.txt
-cdk synth
-cdk diff
-cdk deploy ReleaseCopilot-<env>-Core
+python -m venv .venv && source .venv/bin/activate  # Windows: .venv\\Scripts\\Activate
+pip install -r infra/cdk/requirements.txt
+npx --yes cdk synth
+npx --yes cdk diff
+npx --yes cdk deploy ReleaseCopilot-<env>-Core
 ```
 
 > **Tip:** The `<env>` context defaults to `dev`. Override it with `cdk synth -c env=staging` (or any other value) to produce a differently named stack.
@@ -42,7 +42,7 @@ Enable the optional EventBridge driven sync during deployment by passing the CDK
 context flag:
 
 ```bash
-cdk deploy ReleaseCopilot-<env>-Core -c scheduleEnabled=true
+npx --yes cdk deploy ReleaseCopilot-<env>-Core -c scheduleEnabled=true
 ```
 
 ### Continuous Integration

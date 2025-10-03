@@ -1,6 +1,11 @@
 name: cdk-ci
 
 on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - main
@@ -8,208 +13,86 @@ on:
       - 'infra/**'
       - 'cdk/**'
       - 'cdk.json'
-      - 'cdk/cdk.json'
       - 'package*.json'
       - 'requirements*.txt'
       - '.github/workflows/cdk-ci.yml'
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
   workflow_dispatch:
 
-permissions:
-  id-token: write
-  contents: read
-
-env:
-  AWS_REGION: us-west-2
-  OIDC_ROLE_ARN: ${{ vars.OIDC_ROLE_ARN }}
-
 jobs:
-  validate:
-    name: Validate CDK app
+  validate-and-deploy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: infra/cdk
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: us-west-2
+      NPX_YES: "1"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show repo layout (top)
-        working-directory: ${{ github.workspace }}
-        run: |
-          echo "Workspace root contents"
-          pwd
-          ls -la
-          git rev-parse --show-toplevel
-
-      - name: Set up Node.js
+      - name: Setup Node (20.x)
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
 
-      - name: Set up Python
+      - name: Setup Python (3.11)
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: infra/cdk/requirements.txt
 
-      - name: Preflight — ensure CDK app present
-        run: |
-          echo "PWD=$(pwd)"
-          ls -la
-          if [ ! -f cdk.json ]; then
-            echo "::error::Missing cdk.json in $(pwd). Check working-directory or path."
-            exit 1
-          fi
-          echo "cdk.json:"
-          cat cdk.json
-          if ! command -v jq >/dev/null 2>&1; then
-            echo "::error::jq is required to parse cdk.json. Install jq in the workflow image."
-            exit 1
-          fi
-          APP=$(jq -r '.app // empty' cdk.json || true)
-          if [ -z "$APP" ] || [ "$APP" = "null" ]; then
-            echo "::error::cdk.json exists but \"app\" is empty/missing. Set the app command (e.g., \"python3 app.py\")."
-            exit 1
-          fi
-          echo "Resolved app: $APP"
-
-      - name: Install Python dependencies
-        if: ${{ hashFiles('infra/cdk/requirements.txt') != '' }}
-        run: |
-          python -V
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          if [ -f requirements-dev.txt ]; then
-            pip install -r requirements-dev.txt
-          fi
-
-      - name: Python preflight
-        run: |
-          python scripts/preflight.py
-          python run_cdk_app.py --help || true
-
-      - name: CDK doctor & version
-        run: |
-          npx -y aws-cdk@2 cdk --version
-          npx -y aws-cdk@2 cdk doctor || true
-          cat cdk.context.json || true
-
-      - name: Configure AWS credentials
-        if: env.OIDC_ROLE_ARN != ''
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: cdk-deploy-${{ github.run_id }}
-
-      - name: Who am I
-        if: env.OIDC_ROLE_ARN != ''
-        run: aws sts get-caller-identity
-
-      - name: CDK list (verbose)
+      - name: Install CDK & Python deps
         run: |
           set -euo pipefail
-          echo "Attempt 1: cdk list"
-          if ! npx -y aws-cdk@2 cdk -v list; then
-            echo "Attempt 1 failed; trying explicit -a from cdk.json"
-            APP=$(jq -r '.app // empty' cdk.json)
-            if [ -z "$APP" ] || [ "$APP" = "null" ]; then
-              echo "::error::Unable to resolve app command from cdk.json"
-              exit 1
-            fi
-            echo "Explicit app: $APP"
-            npx -y aws-cdk@2 cdk -v -a "$APP" list
-          fi
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install -r infra/cdk/requirements.txt
+          npm install -g aws-cdk
 
-      - name: CDK synth
-        run: npx -y aws-cdk@2 cdk synth
-
-      - name: CDK diff
-        continue-on-error: true
-        run: npx -y aws-cdk@2 cdk diff || true
-
-      - name: Upload synthesized app
-        if: always() && hashFiles('infra/cdk/cdk.out/**') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: cdk.out
-          path: infra/cdk/cdk.out
-
-  deploy:
-    name: Deploy CDK app
-    runs-on: ubuntu-latest
-    needs: validate
-    if: >-
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    defaults:
-      run:
-        working-directory: infra/cdk
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Preflight — ensure CDK app present
+      - name: Diagnose working dir & cdk.json
         run: |
+          set -xeuo pipefail
           echo "PWD=$(pwd)"
           ls -la
-          if [ ! -f cdk.json ]; then
-            echo "::error::Missing cdk.json in $(pwd). Check working-directory or path."
-            exit 1
-          fi
-          echo "cdk.json:"
-          cat cdk.json
-          if ! command -v jq >/dev/null 2>&1; then
-            echo "::error::jq is required to parse cdk.json. Install jq in the workflow image."
-            exit 1
-          fi
-          APP=$(jq -r '.app // empty' cdk.json || true)
-          if [ -z "$APP" ] || [ "$APP" = "null" ]; then
-            echo "::error::cdk.json exists but \"app\" is empty/missing. Set the app command (e.g., \"python3 app.py\")."
-            exit 1
-          fi
-          echo "Resolved app: $APP"
+          echo '--- cdk.json ---'
+          test -f cdk.json && cat cdk.json || echo 'NO ROOT cdk.json FOUND'
 
-      - name: Install Python dependencies
-        if: ${{ hashFiles('infra/cdk/requirements.txt') != '' }}
+      - name: CDK List
         run: |
-          python -V
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          if [ -f requirements-dev.txt ]; then
-            pip install -r requirements-dev.txt
-          fi
+          set -euo pipefail
+          source .venv/bin/activate
+          npx cdk list -a "python -m infra.cdk.app"
 
-      - name: Python preflight
+      - name: CDK Synth
         run: |
-          python scripts/preflight.py
-          python run_cdk_app.py --help || true
+          set -euo pipefail
+          source .venv/bin/activate
+          npx cdk synth -a "python -m infra.cdk.app"
 
       - name: Configure AWS credentials
+        if: vars.OIDC_ROLE_ARN != ''
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
           role-session-name: cdk-deploy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Who am I
-        run: aws sts get-caller-identity
+      - name: CDK Diff
+        if: vars.OIDC_ROLE_ARN != ''
+        run: |
+          set -euo pipefail
+          source .venv/bin/activate
+          npx cdk diff -a "python -m infra.cdk.app"
 
-      - name: CDK deploy all stacks
-        run: npx -y aws-cdk@2 cdk deploy --require-approval never --all
+      - name: CDK Deploy
+        if: >-
+          vars.OIDC_ROLE_ARN != '' &&
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        run: |
+          set -euo pipefail
+          source .venv/bin/activate
+          npx cdk deploy -a "python -m infra.cdk.app" --require-approval never
