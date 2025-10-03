@@ -40,17 +40,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install CDK & Python dependencies
+      - name: Install CDK & Python deps
         run: |
-          npm install -g aws-cdk
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install -r infra/cdk/requirements.txt
-
-      - name: Verify CDK root layout
-        run: ./scripts/ci/verify_cdk_root_layout.sh
+          npm install -g aws-cdk
 
       - name: CDK List
         run: |

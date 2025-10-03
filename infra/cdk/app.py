@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 """CDK application entrypoint for the ReleaseCopilot infrastructure."""
 from __future__ import annotations
 
