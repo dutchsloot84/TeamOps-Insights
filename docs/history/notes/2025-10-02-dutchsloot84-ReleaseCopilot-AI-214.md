@@ -4,11 +4,11 @@ _Repo:_ dutchsloot84/ReleaseCopilot-AI
 _Source:_ https://github.com/dutchsloot84/ReleaseCopilot-AI/pull/214
 
 - Decision (Uncategorized) — 2025-10-02 by @dutchsloot84
-  Canonicalize CDK config to infra/cdk/cdk.json and normalize the app to use python3 in CI.
+  Canonicalize CDK config to cdk.json and normalize the app to use python3 in CI.
   [View comment](https://github.com/dutchsloot84/ReleaseCopilot-AI/pull/214#issuecomment-3362858117) <!-- digest:f9e68dcf9018b4f43f2aef352f7779272e338dc89b0dbced2c409fc662b357f4 -->
 
 - Decision (Uncategorized) — 2025-10-02 by @dutchsloot84
-  Treat any additional cdk.json outside infra/cdk/cdk.json as unsupported for CI.
+  Treat any additional cdk.json outside cdk.json as unsupported for CI.
   [View comment](https://github.com/dutchsloot84/ReleaseCopilot-AI/pull/214#issuecomment-3362858117) <!-- digest:5878ada0061dee81351587a201e4a5735359c0d55734b52c00abef0d93770a16 -->
 
 - Note (Uncategorized) — 2025-10-02 by @dutchsloot84
@@ -28,7 +28,7 @@ _Source:_ https://github.com/dutchsloot84/ReleaseCopilot-AI/pull/214
   [View comment](https://github.com/dutchsloot84/ReleaseCopilot-AI/pull/214#issuecomment-3362858117) <!-- digest:7d4d8b05e85eb511b6af18ecafc5d2274a75f3c0da98fdc48e82d67069c251aa -->
 
 - Action (Uncategorized) — 2025-10-02 by @dutchsloot84
-  Remove or migrate any legacy cdk.json files to infra/cdk/cdk.json.
+  Remove or migrate any legacy cdk.json files to cdk.json.
   [View comment](https://github.com/dutchsloot84/ReleaseCopilot-AI/pull/214#issuecomment-3362858117) <!-- digest:fb4408988a375b49c36f6782fcafc9a8851ce33533f87fef8dc8479f55752241 -->
 
 - Blocker (Uncategorized) — 2025-10-02 by @dutchsloot84

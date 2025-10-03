@@ -29,5 +29,6 @@ nav:
       - AWS Deployment: diagrams/deployment-aws.md
       - Agents: diagrams/agents.md
   - Deployment: deployment.md
+  - Developer Setup: dev_setup.md
   - Agent Research: agent_research.md
   - Git Historian: git-historian.md

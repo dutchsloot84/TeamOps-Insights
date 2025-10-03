@@ -143,11 +143,18 @@ jobs:
       - name: Install AWS CDK
         run: npm install -g aws-cdk@2
 
-      - name: Synthesize CDK app
+      - name: Diagnose working dir & cdk.json
+        run: |
+          set -xeuo pipefail
+          echo "PWD=$(pwd)"
+          ls -la
+          echo '--- cdk.json ---'
+          test -f cdk.json && cat cdk.json || echo 'NO ROOT cdk.json FOUND'
+
+      - name: Synthesize CDK app (root, explicit app)
         run: |
           source .venv/bin/activate
-          cd infra/cdk
-          cdk synth
+          npx cdk synth -a "python -m infra.cdk.app"
         shell: bash
 
   optional-uploader:

@@ -23,20 +23,19 @@ The new CDK `CoreStack` codifies those resources with least-privilege defaults:
 
 ```bash
 # one-time setup
-cd infra/cdk
 python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\Activate
-pip install -r requirements.txt
-cdk bootstrap
+pip install -r infra/cdk/requirements.txt
+npx --yes cdk bootstrap
 
 # synth & test
 pytest -q
-cdk synth
+npx --yes cdk synth
 
 # deploy with defaults
-cdk deploy --require-approval never
+npx --yes cdk deploy --require-approval never
 
 # override context for real bucket + secrets
-cdk deploy \
+npx --yes cdk deploy \
   --context region=us-west-2 \
   --context bucketName=releasecopilot-artifacts-slv \
   --context jiraSecretArn=arn:aws:secretsmanager:us-west-2:ACCOUNT:secret:/releasecopilot/jira-XXXX \
@@ -46,15 +45,14 @@ cdk deploy \
 ### Quick runbook: CloudWatch alarms
 
 ```bash
-cd infra/cdk
 source .venv/bin/activate  # Windows: .venv\Scripts\Activate
-cdk synth
+npx --yes cdk synth
 
 # deploy without email
-cdk deploy --require-approval never
+npx --yes cdk deploy --require-approval never
 
 # deploy with email notifications
-cdk deploy --context alarmEmail=you@example.com --require-approval never
+npx --yes cdk deploy --context alarmEmail=you@example.com --require-approval never
 
 # smoke test: cause a Lambda error, re-invoke, then check CloudWatch Alarms
 ```
@@ -64,18 +62,17 @@ cdk deploy --context alarmEmail=you@example.com --require-approval never
 The stack can create an EventBridge rule that invokes the ReleaseCopilot Lambda on a cron schedule. The feature is disabled by default so the stack stays simple unless you explicitly opt in.
 
 ```bash
-cd infra/cdk
 source .venv/bin/activate  # Windows: .venv\Scripts\Activate
 
 # enable the default 6:30 PM Phoenix schedule (cron(30 1 * * ? *))
-cdk deploy --context scheduleEnabled=true --require-approval never
+npx --yes cdk deploy --context scheduleEnabled=true --require-approval never
 
 # customize the cadence
-cdk deploy \
+npx --yes cdk deploy \
   --context scheduleEnabled=true \
   --context scheduleCron="cron(0 14 * * ? *)" \
   --require-approval never
 
 # disable and clean up the rule on the next deploy
-cdk deploy --context scheduleEnabled=false --require-approval never
+npx --yes cdk deploy --context scheduleEnabled=false --require-approval never
 ```
