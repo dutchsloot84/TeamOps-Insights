@@ -210,7 +210,7 @@ Infrastructure for the audit workflow is defined in `infra/cdk`. Each AWS enviro
 
 `infra/cdk/app.py` automatically works out the deployment account and region, but `cdk synth` still needs one of the following to succeed:
 
-1. **CDK context:** supply `account`/`region` in `infra/cdk/cdk.json`, an `infra/envs/<env>.json` file, or via CLI flags, e.g. `cdk synth -c account=123456789012 -c region=us-west-2`.
+1. **CDK context:** supply `account`/`region` in `cdk.json`, an `infra/envs/<env>.json` file, or via CLI flags, e.g. `cdk synth -c account=123456789012 -c region=us-west-2`.
 2. **AWS credentials:** run `aws configure`, `aws sso login`, or export environment variables so that `boto3` can call `sts:GetCallerIdentity`. The resolved identity is used for the CDK environment automatically.
 3. **Explicit environment variables:** export `CDK_DEFAULT_ACCOUNT` (and optionally `CDK_DEFAULT_REGION`) before invoking `cdk synth`.
 

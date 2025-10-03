@@ -42,7 +42,7 @@ def _load_context(app: App) -> Dict[str, Any]:
         "bitbucketSecretArn": str(_context(app, "bitbucketSecretArn", "")),
         "scheduleEnabled": _to_bool(_context(app, "scheduleEnabled", False)),
         "scheduleCron": str(_context(app, "scheduleCron", "")),
-        "lambdaAssetPath": str(_context(app, "lambdaAssetPath", "../../dist")),
+        "lambdaAssetPath": str(_context(app, "lambdaAssetPath", "dist")),
         "lambdaHandler": str(_context(app, "lambdaHandler", "main.handler")),
         "lambdaTimeoutSec": int(_context(app, "lambdaTimeoutSec", 180)),
         "lambdaMemoryMb": int(_context(app, "lambdaMemoryMb", 512)),
