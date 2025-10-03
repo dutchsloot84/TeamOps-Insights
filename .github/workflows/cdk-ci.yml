@@ -1,6 +1,11 @@
 name: cdk-ci
 
 on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - main
@@ -11,167 +16,60 @@ on:
       - 'package*.json'
       - 'requirements*.txt'
       - '.github/workflows/cdk-ci.yml'
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
   workflow_dispatch:
 
-permissions:
-  id-token: write
-  contents: read
-
-env:
-  AWS_REGION: us-west-2
-  OIDC_ROLE_ARN: ${{ vars.OIDC_ROLE_ARN }}
-
 jobs:
-  validate:
-    name: Validate CDK app
+  validate-and-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: us-west-2
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show repo layout (top)
-        working-directory: ${{ github.workspace }}
-        run: |
-          echo "Workspace root contents"
-          pwd
-          ls -la
-          git rev-parse --show-toplevel
+      - name: Setup Node (20.x)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-      - name: Set up Python
+      - name: Setup Python (3.11)
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: infra/cdk/requirements.txt
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Install Python deps (CDK app)
+      - name: Install CDK & Python dependencies
         run: |
-          python3 -V
-          if [ -f infra/cdk/requirements.txt ]; then
-            python3 -m pip install --upgrade pip
-            python3 -m pip install -r infra/cdk/requirements.txt
-          fi
+          npm install -g aws-cdk
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
+          if [ -f infra/cdk/requirements.txt ]; then python -m pip install -r infra/cdk/requirements.txt; fi
 
-      - name: Install Node deps (if Node app)
-        if: ${{ hashFiles('infra/cdk/package.json') != '' }}
-        working-directory: infra/cdk
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
-          if node -e "const pkg = require('./package.json'); process.exit(pkg?.scripts?.build ? 0 : 1);"; then npm run build; fi
+      - name: Verify CDK root layout
+        run: ./scripts/ci/verify_cdk_root_layout.sh
 
-      - name: Python preflight
-        run: |
-          python3 infra/cdk/scripts/preflight.py
-          python3 infra/cdk/run_cdk_app.py --help || true
+      - name: CDK List
+        run: npx cdk list
 
-      - name: CDK doctor
-        run: |
-          npx -y aws-cdk@2 cdk --version
-          npx -y aws-cdk@2 cdk doctor || true
-          cat cdk.context.json || true
+      - name: CDK Synth
+        run: npx cdk synth
 
       - name: Configure AWS credentials
-        if: env.OIDC_ROLE_ARN != ''
+        if: vars.OIDC_ROLE_ARN != ''
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.OIDC_ROLE_ARN }}
           role-session-name: cdk-deploy-${{ github.run_id }}
-
-      - name: Who am I
-        if: env.OIDC_ROLE_ARN != ''
-        run: aws sts get-caller-identity
-
-      - name: CDK list
-        run: npx -y aws-cdk@2 cdk -v list
-
-      - name: CDK synth
-        run: npx -y aws-cdk@2 cdk synth
-
-      - name: CDK diff
-        continue-on-error: true
-        run: npx -y aws-cdk@2 cdk diff || true
-
-      - name: Upload synthesized app
-        if: always() && hashFiles('cdk.out/**') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: cdk.out
-          path: cdk.out
-
-  deploy:
-    name: Deploy CDK app
-    runs-on: ubuntu-latest
-    needs: validate
-    if: >-
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: infra/cdk/requirements.txt
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Install Python deps (CDK app)
-        run: |
-          python3 -V
-          if [ -f infra/cdk/requirements.txt ]; then
-            python3 -m pip install --upgrade pip
-            python3 -m pip install -r infra/cdk/requirements.txt
-          fi
-
-      - name: Install Node deps (if Node app)
-        if: ${{ hashFiles('infra/cdk/package.json') != '' }}
-        working-directory: infra/cdk
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
-          if node -e "const pkg = require('./package.json'); process.exit(pkg?.scripts?.build ? 0 : 1);"; then npm run build; fi
-
-      - name: Python preflight
-        run: |
-          python3 infra/cdk/scripts/preflight.py
-          python3 infra/cdk/run_cdk_app.py --help || true
-
-      - name: CDK doctor
-        run: |
-          npx -y aws-cdk@2 cdk --version
-          npx -y aws-cdk@2 cdk doctor || true
-          cat cdk.context.json || true
-
-      - name: Configure AWS credentials
-        if: env.OIDC_ROLE_ARN != ''
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-          role-session-name: cdk-deploy-${{ github.run_id }}
 
-      - name: Who am I
-        if: env.OIDC_ROLE_ARN != ''
-        run: aws sts get-caller-identity
+      - name: CDK Diff
+        run: npx cdk diff
 
-      - name: CDK list
-        run: npx -y aws-cdk@2 cdk -v list
-
-      - name: CDK deploy all stacks
-        run: npx -y aws-cdk@2 cdk deploy --require-approval never --all
+      - name: CDK Deploy
+        if: >-
+          vars.OIDC_ROLE_ARN != '' &&
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        run: npx cdk deploy --require-approval never

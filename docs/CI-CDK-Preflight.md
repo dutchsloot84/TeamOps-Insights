@@ -1,47 +1,34 @@
 # CDK Workflow Preflight Checklist
 
-The `cdk-ci` GitHub Actions workflow now performs an explicit preflight before
-running `cdk list`, `cdk synth`, or other AWS CDK commands. The preflight steps
-ensure the CDK application can be located and executed reliably in CI and make
-troubleshooting failures easier for contributors.
+The `cdk-ci` GitHub Actions workflow performs a lightweight preflight before
+running `cdk list`, `cdk synth`, or other AWS CDK commands. The checks confirm
+the repository uses a single root-level `cdk.json` and that the configured
+entry point exists before invoking the CDK CLI.
 
 ## What the preflight checks
 
-1. **Repository layout** – The workflow prints the workspace root, lists its
-   contents, and confirms the git top-level directory. These diagnostics make it
-   obvious when the runner is in an unexpected folder.
-2. **CDK app discovery** – In `infra/cdk` the workflow:
-   - Dumps the directory contents
-   - Verifies that `cdk.json` exists
-   - Uses `jq` to confirm the `app` key is present and non-empty, printing the
-     resolved command.
-   If the file is missing or the `app` key is blank, the job fails with an
-   actionable error instead of the generic `Did you mean ack?` banner.
-3. **Language dependencies** – For the Python CDK app the workflow installs
-   requirements from `requirements.txt` (and `requirements-dev.txt` when
-   available) before calling `npx aws-cdk@2`. The structure supports Node-based
-   apps through the `hashFiles` guard should the repository add a `package.json`
-   in the future.
-4. **Environment sanity** – The workflow runs `npx -y aws-cdk@2 cdk --version`
-   and `cdk doctor`, emitting the CDK context file when present.
-5. **Verbose listing fallback** – `cdk list` now runs with `-v` and, if it
-   fails, automatically retries with an explicit `-a "<app command>"` so the
-   logs show exactly which command CDK tried to execute.
+1. **Repository layout** – `scripts/ci/verify_cdk_root_layout.sh` ensures
+   `cdk.json` lives at the repository root, extracts the `app` command, and
+   verifies that the referenced entry file exists. The guard also blocks nested
+   `infra/cdk/infra/cdk` directories that previously caused confusion.
+2. **Language dependencies** – The workflow installs Python requirements from
+   `requirements.txt` (when present) and `infra/cdk/requirements.txt` before
+   running the CDK CLI from the repository root.
+3. **CLI execution** – With the layout verified, the workflow runs `npx cdk
+   list`, `npx cdk synth`, and, when credentials are available, `npx cdk diff`
+   and `npx cdk deploy --require-approval never`.
 
 ## Local debugging tips
 
 Run the same checks locally from the repository root:
 
 ```bash
-cd infra/cdk
-ls -la
-cat cdk.json
+./scripts/ci/verify_cdk_root_layout.sh
 python -m venv .venv && source .venv/bin/activate
-python -m pip install -r requirements.txt
-python scripts/preflight.py
-npx -y aws-cdk@2 cdk -v list
+python -m pip install -r infra/cdk/requirements.txt
+npx cdk list
 ```
 
-If the verbose `cdk list` fails locally, copy the `app` command printed from
-`cdk.json` and execute it directly (for example `python infra/cdk/run_cdk_app.py`) to
-see any underlying stack trace before retrying the CDK CLI.
+If the `cdk list` command fails locally, execute the `app` command printed by
+the verification script (for example `python infra/cdk/app.py`) to inspect the
+underlying stack trace before retrying the CDK CLI.
