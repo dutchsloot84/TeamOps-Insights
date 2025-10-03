@@ -44,6 +44,7 @@ jobs:
 
       - name: Install CDK & Python deps
         run: |
+          set -euo pipefail
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
@@ -51,15 +52,25 @@ jobs:
           pip install -r infra/cdk/requirements.txt
           npm install -g aws-cdk
 
+      - name: Diagnose working dir & cdk.json
+        run: |
+          set -xeuo pipefail
+          echo "PWD=$(pwd)"
+          ls -la
+          echo '--- cdk.json ---'
+          test -f cdk.json && cat cdk.json || echo 'NO ROOT cdk.json FOUND'
+
       - name: CDK List
         run: |
+          set -euo pipefail
           source .venv/bin/activate
-          npx cdk list
+          npx cdk list -a "python -m infra.cdk.app"
 
       - name: CDK Synth
         run: |
+          set -euo pipefail
           source .venv/bin/activate
-          npx cdk synth
+          npx cdk synth -a "python -m infra.cdk.app"
 
       - name: Configure AWS credentials
         if: vars.OIDC_ROLE_ARN != ''
@@ -72,8 +83,9 @@ jobs:
       - name: CDK Diff
         if: vars.OIDC_ROLE_ARN != ''
         run: |
+          set -euo pipefail
           source .venv/bin/activate
-          npx cdk diff
+          npx cdk diff -a "python -m infra.cdk.app"
 
       - name: CDK Deploy
         if: >-
@@ -81,5 +93,6 @@ jobs:
           github.event_name == 'push' &&
           (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         run: |
+          set -euo pipefail
           source .venv/bin/activate
-          npx cdk deploy --require-approval never
+          npx cdk deploy -a "python -m infra.cdk.app" --require-approval never

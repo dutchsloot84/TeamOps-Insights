@@ -166,9 +166,15 @@ The pipeline provisions Python 3.11, installs both the runtime and development
 dependencies, runs focused Ruff lint checks (syntax and runtime errors) and the
 pytest suite, and invokes the existing packaging helper to build the Lambda
 bundle. A follow-up job ensures the infrastructure code synthesises by running
-`cdk synth` from `infra/cdk` with the AWS CDK CLI. When a tag matching
+`npx cdk synth -a "python -m infra.cdk.app"` from the repository root with the AWS CDK CLI. When a tag matching
 `v*.*.*` is pushed, the packaged `lambda_bundle.zip` artifact is uploaded to the
 run for download.
+
+## Infrastructure (CDK)
+
+- [CDK Best Practices (This Repo)](docs/cdk/README.md)
+- [CDK CI Runbook](docs/runbooks/cdk-synth-deploy.md)
+- [ADR-0001: Adopt root-level `cdk.json` with module entry](docs/adr/ADR-0001-cdk-root-config.md)
 
 ## AWS Deployment
 
