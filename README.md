@@ -275,14 +275,16 @@ Edit pages under `docs/` and push to `main` — the site republish is automated 
 ### Deploying with CDK (dev)
 
 ```bash
-cd infra/cdk
 python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\Activate
-pip install -r requirements.txt
-cdk bootstrap
+pip install -r infra/cdk/requirements.txt
+npx --yes cdk bootstrap
 pytest -q
-cdk synth
-cdk deploy --require-approval never
+npx --yes cdk synth
+npx --yes cdk deploy --require-approval never
 
 # override context if needed
-cdk deploy   --context bucketBase=releasecopilot-artifacts   --context jiraSecretArn=arn:aws:secretsmanager:...   --context bitbucketSecretArn=arn:aws:secretsmanager:...
+npx --yes cdk deploy \
+  --context bucketBase=releasecopilot-artifacts \
+  --context jiraSecretArn=arn:aws:secretsmanager:... \
+  --context bitbucketSecretArn=arn:aws:secretsmanager:...
 ```

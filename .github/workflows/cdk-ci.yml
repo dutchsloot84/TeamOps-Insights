@@ -26,6 +26,7 @@ jobs:
       contents: read
     env:
       AWS_REGION: us-west-2
+      NPX_YES: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,6 +43,8 @@ jobs:
 
       - name: Install CDK & Python deps
         run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}"
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
@@ -51,13 +54,17 @@ jobs:
 
       - name: CDK List
         run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}"
           source .venv/bin/activate
-          npx cdk list
+          npx --yes cdk list
 
       - name: CDK Synth
         run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}"
           source .venv/bin/activate
-          npx cdk synth
+          npx --yes cdk synth
 
       - name: Configure AWS credentials
         if: vars.OIDC_ROLE_ARN != ''
@@ -70,8 +77,10 @@ jobs:
       - name: CDK Diff
         if: vars.OIDC_ROLE_ARN != ''
         run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}"
           source .venv/bin/activate
-          npx cdk diff
+          npx --yes cdk diff
 
       - name: CDK Deploy
         if: >-
@@ -79,5 +88,7 @@ jobs:
           github.event_name == 'push' &&
           (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}"
           source .venv/bin/activate
-          npx cdk deploy --require-approval never
+          npx --yes cdk deploy --require-approval never
