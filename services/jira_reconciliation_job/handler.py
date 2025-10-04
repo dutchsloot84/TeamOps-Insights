@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import base64
 import json
-import logging
 import os
 import time
 from dataclasses import dataclass
@@ -14,10 +13,11 @@ from urllib import error, parse, request
 import boto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
+from releasecopilot.logging_config import configure_logging, get_logger
 
 
-LOGGER = logging.getLogger()
-LOGGER.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+configure_logging()
+LOGGER = get_logger(__name__)
 
 TABLE_NAME = os.environ["TABLE_NAME"]
 JIRA_BASE_URL = os.getenv("JIRA_BASE_URL", "https://your-domain.atlassian.net").rstrip("/")

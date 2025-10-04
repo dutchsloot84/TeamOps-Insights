@@ -34,6 +34,11 @@ Common secret tokens (e.g., values containing "token", "secret", "password",
 "key", or "authorization") are automatically redacted to prevent accidental
 exposure in logs.
 
+All AWS Lambda entrypoints import the shared logging configuration during cold
+starts. This ensures every function emits logs through the same filter chain
+and inherits the redaction guarantees above without requiring per-function
+customisation.
+
 ## Retry behaviour
 
 Jira and Bitbucket HTTP calls are protected with exponential backoff and
