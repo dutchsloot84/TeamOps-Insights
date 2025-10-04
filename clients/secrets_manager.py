@@ -1,4 +1,5 @@
 """Helpers for loading secrets from environment variables or AWS Secrets Manager."""
+
 from __future__ import annotations
 
 import json
@@ -35,9 +36,11 @@ class SecretsManager:
     def _get_client(self):
         if self._client is None and self.region_name:
             try:
-                self._client = boto3.client("secretsmanager", region_name=self.region_name)
+                self._client = boto3.client(
+                    "secretsmanager", region_name=self.region_name
+                )
             except (BotoCoreError, ClientError):
-                logger.exception("Unable to create Secrets Manager client")
+                logger.exception(f"Unable to create Secrets Manager client")
                 self._client = None
         return self._client
 
@@ -48,7 +51,9 @@ class SecretsManager:
 
         client = self._get_client()
         if client is None:
-            logger.info("Secrets Manager client unavailable; skipping fetch for %s", secret_id)
+            logger.info(
+                "Secrets Manager client unavailable; skipping fetch for %s", secret_id
+            )
             return None
 
         try:
@@ -61,7 +66,7 @@ class SecretsManager:
             logger.debug("Loaded secret %s", secret_id)
             return SecretResult(name=secret_id, value=payload)
         except (BotoCoreError, ClientError, json.JSONDecodeError):
-            logger.exception("Failed to retrieve secret %s", secret_id)
+            logger.exception(f"Failed to retrieve secret {secret_id}")
             return None
 
 

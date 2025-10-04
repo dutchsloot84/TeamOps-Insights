@@ -1,4 +1,5 @@
 """Shared configuration helpers used across the CLI and Lambda entry points."""
+
 from __future__ import annotations
 
 import copy
@@ -6,9 +7,11 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Dict, Mapping, MutableMapping, Sequence, Tuple
 
 import yaml
+
+from clients.secrets_manager import CredentialStore, SecretsManager
 
 __all__ = [
     "Defaults",
@@ -70,14 +73,9 @@ def _load_settings_file(path: Path) -> Dict[str, Any]:
     raise ValueError(f"Unsupported configuration format: {path}")
 
 
-def load_config(path: Optional[str | Path] = None) -> Dict[str, Any]:
-    """Load configuration data from ``path`` or the default settings file."""
-
-    target = Path(path) if path is not None else DEFAULT_SETTINGS_PATH
-    return _load_settings_file(target)
-
-
-def get_aws_region(config: Mapping[str, Any], env: Mapping[str, str] | None = None) -> str | None:
+def get_aws_region(
+    config: Mapping[str, Any], env: Mapping[str, str] | None = None
+) -> str | None:
     """Return the AWS region derived from configuration or environment."""
 
     env = env or os.environ
@@ -140,10 +138,18 @@ def load_defaults(env: Mapping[str, str] | None = None) -> Defaults:
     """
 
     env = env or os.environ
-    project_root = Path(_env(env, "RC_ROOT", str(Path(__file__).resolve().parents[2]))).resolve()
-    cache_dir = Path(_env(env, "RC_CACHE_DIR", str(project_root / "temp_data"))).resolve()
-    artifact_dir = Path(_env(env, "RC_ARTIFACT_DIR", str(project_root / "dist"))).resolve()
-    reports_dir = Path(_env(env, "RC_REPORTS_DIR", str(project_root / "reports"))).resolve()
+    project_root = Path(
+        _env(env, "RC_ROOT", str(Path(__file__).resolve().parents[2]))
+    ).resolve()
+    cache_dir = Path(
+        _env(env, "RC_CACHE_DIR", str(project_root / "temp_data"))
+    ).resolve()
+    artifact_dir = Path(
+        _env(env, "RC_ARTIFACT_DIR", str(project_root / "dist"))
+    ).resolve()
+    reports_dir = Path(
+        _env(env, "RC_REPORTS_DIR", str(project_root / "reports"))
+    ).resolve()
     settings_path = Path(
         _env(env, "RC_SETTINGS_FILE", str(project_root / "config" / "defaults.yml"))
     ).resolve()
@@ -228,7 +234,9 @@ def _deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> Dict[st
     return result
 
 
-def _set_path(config: MutableMapping[str, Any], path: Sequence[str], value: Any) -> None:
+def _set_path(
+    config: MutableMapping[str, Any], path: Sequence[str], value: Any
+) -> None:
     cursor: MutableMapping[str, Any] = config
     for segment in path[:-1]:
         existing = cursor.get(segment)
@@ -264,7 +272,9 @@ def _parse_env_value(key: str, value: str) -> Any:
     return value
 
 
-def _apply_environment_overrides(config: MutableMapping[str, Any], env: Mapping[str, str]) -> None:
+def _apply_environment_overrides(
+    config: MutableMapping[str, Any], env: Mapping[str, str]
+) -> None:
     for env_key, path in _ENVIRONMENT_PATHS.items():
         if env_key not in env:
             continue
@@ -318,6 +328,7 @@ def _validate_schema(config: Mapping[str, Any]) -> None:
 
 
 def load_config(
+    path: str | os.PathLike | None = None,
     *,
     overrides: Mapping[str, Any] | None = None,
     env: Mapping[str, str] | None = None,
@@ -326,6 +337,9 @@ def load_config(
     credential_store: CredentialStore | None = None,
 ) -> Dict[str, Any]:
     """Load the layered configuration with deterministic precedence."""
+
+    if path is not None and override_path is None:
+        override_path = Path(path)
 
     defaults_file = defaults_path or DEFAULT_CONFIG_PATH
     with defaults_file.open("r", encoding="utf-8") as handle:
@@ -338,7 +352,9 @@ def load_config(
     region = _get_path(config, ("aws", "region"))
     secrets_manager = credential_store
     if secrets_manager is None:
-        sm_client = SecretsManager(region_name=region if isinstance(region, str) else None)
+        sm_client = SecretsManager(
+            region_name=region if isinstance(region, str) else None
+        )
         secrets_manager = CredentialStore(secrets_manager=sm_client)
 
     _apply_secret_overrides(config, secrets_manager)
@@ -358,5 +374,3 @@ def load_config(
 
     _validate_schema(config)
     return dict(config)
-
-
