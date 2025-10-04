@@ -27,21 +27,30 @@ def test_fetch_issues_returns_issue_payloads(monkeypatch: pytest.MonkeyPatch) ->
                 "Items": [
                     {
                         "issue_id": "100",
+                        "issue_key": "ABC-1",
+                        "updated_at": "2024-05-01T12:00:00Z",
                         "issue": {"key": "ABC-1", "fields": {"summary": "First"}},
                         "deleted": False,
                     },
                     {
                         "issue_id": "101",
+                        "issue_key": "ABC-2",
+                        "updated_at": "2024-05-02T12:00:00Z",
                         "issue": {"key": "ABC-2", "fields": {"summary": "Second"}},
                         "deleted": False,
                     },
                 ],
-                "LastEvaluatedKey": {"issue_id": "101"},
+                "LastEvaluatedKey": {
+                    "issue_key": "ABC-2",
+                    "updated_at": "2024-05-02T12:00:00Z",
+                },
             },
             {
                 "Items": [
                     {
                         "issue_id": "102",
+                        "issue_key": "ABC-3",
+                        "updated_at": "2024-05-03T12:00:00Z",
                         "issue": {"key": "ABC-3", "fields": {"summary": "Third"}},
                         "deleted": False,
                     }

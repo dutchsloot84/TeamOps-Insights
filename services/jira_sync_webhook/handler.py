@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import boto3
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 from releasecopilot.logging_config import configure_logging, get_logger
 
@@ -139,15 +140,16 @@ def _extract_secret_string(secret_string: str) -> Optional[str]:
 
 def _handle_upsert(payload: Dict[str, Any]) -> Dict[str, Any]:
     issue = payload.get("issue") or {}
-    issue_id = issue.get("id") or issue.get("key")
-    if not issue_id:
+    issue_key = issue.get("key") or issue.get("id")
+    if not issue_key:
         LOGGER.error("Webhook payload missing issue identifier", extra={"payload": payload})
         return {"success": False, "status": 400, "message": "Missing issue identifier"}
 
+    issue_id = str(issue.get("id") or issue_key)
     issue_fields = issue.get("fields") or {}
     updated_at = _normalize_timestamp(
         issue_fields.get("updated") or issue_fields.get("created") or payload.get("timestamp")
-    )
+    ) or _now_iso()
     fix_versions = [fv.get("name") for fv in issue_fields.get("fixVersions") or [] if fv.get("name")]
     primary_fix_version = fix_versions[0] if fix_versions else "UNASSIGNED"
     status = (issue_fields.get("status") or {}).get("name", "UNKNOWN")
@@ -155,70 +157,154 @@ def _handle_upsert(payload: Dict[str, Any]) -> Dict[str, Any]:
         (issue_fields.get("assignee") or {}).get("displayName")
     )
 
+    idempotency_key = _compute_idempotency_key(payload, issue_key, updated_at)
+
     item = {
+        "issue_key": issue_key,
+        "updated_at": updated_at,
         "issue_id": issue_id,
-        "issue_key": issue.get("key"),
         "project_key": (issue_fields.get("project") or {}).get("key"),
         "status": status,
         "assignee": assignee or "UNASSIGNED",
         "fix_version": primary_fix_version,
         "fix_versions": fix_versions,
-        "updated_at": updated_at,
         "received_at": _now_iso(),
         "issue": issue,
         "deleted": False,
         "last_event_type": payload.get("webhookEvent"),
+        "idempotency_key": idempotency_key,
     }
 
     try:
-        _put_item_with_retry(item, updated_at)
+        _put_item_with_retry(item)
     except ClientError as exc:
-        LOGGER.error("Failed to persist Jira issue", extra={"issue_id": issue_id, "error": str(exc)})
+        LOGGER.error(
+            "Failed to persist Jira issue",
+            extra={"issue_key": issue_key, "issue_id": issue_id, "error": str(exc)},
+        )
         return {"success": False, "status": 500, "message": "Failed to persist issue"}
 
     LOGGER.info(
-        "Persisted Jira issue", extra={"issue_id": issue_id, "fix_version": primary_fix_version}
+        "Persisted Jira issue",
+        extra={"issue_key": issue_key, "issue_id": issue_id, "fix_version": primary_fix_version},
     )
-    return {"success": True, "issue_id": issue_id}
+    return {"success": True, "issue_key": issue_key, "issue_id": issue_id}
 
 
 def _handle_delete(payload: Dict[str, Any]) -> Dict[str, Any]:
     issue = payload.get("issue") or {}
-    issue_id = issue.get("id") or issue.get("key")
-    if not issue_id:
+    issue_key = issue.get("key") or issue.get("id")
+    if not issue_key:
         LOGGER.error("Delete webhook missing issue id", extra={"payload": payload})
         return {"success": False, "status": 400, "message": "Missing issue identifier"}
 
+    updated_at = _normalize_timestamp(payload.get("timestamp")) or _now_iso()
+    idempotency_key = _compute_idempotency_key(payload, issue_key, updated_at)
+
     try:
-        _delete_item_with_retry(issue_id)
+        tombstoned = _mark_tombstone(issue_key, updated_at, idempotency_key, payload)
     except ClientError as exc:
-        LOGGER.error("Failed to delete Jira issue", extra={"issue_id": issue_id, "error": str(exc)})
+        LOGGER.error(
+            "Failed to delete Jira issue",
+            extra={"issue_key": issue_key, "error": str(exc)},
+        )
         return {"success": False, "status": 500, "message": "Failed to delete issue"}
 
-    LOGGER.info("Deleted Jira issue", extra={"issue_id": issue_id})
-    return {"success": True, "issue_id": issue_id, "deleted": True}
+    LOGGER.info("Deleted Jira issue", extra={"issue_key": issue_key, "tombstoned": tombstoned})
+    return {"success": True, "issue_key": issue_key, "deleted": True}
 
 
-def _put_item_with_retry(item: Dict[str, Any], updated_at: Optional[str]) -> None:
-    condition = "attribute_not_exists(issue_id)"
-    expression_values: Dict[str, Any] = {}
-    if updated_at:
-        condition += " OR updated_at <= :updated"
-        expression_values[":updated"] = updated_at
-
+def _put_item_with_retry(item: Dict[str, Any]) -> None:
     params: Dict[str, Any] = {
         "Item": item,
-        "ConditionExpression": condition,
+        "ConditionExpression": "attribute_not_exists(idempotency_key) OR idempotency_key = :id",  # noqa: E501
+        "ExpressionAttributeValues": {":id": item["idempotency_key"]},
     }
-    if expression_values:
-        params["ExpressionAttributeValues"] = expression_values
 
     _execute_with_backoff(_TABLE.put_item, params)
 
 
-def _delete_item_with_retry(issue_id: str) -> None:
-    params = {"Key": {"issue_id": issue_id}}
-    _execute_with_backoff(_TABLE.delete_item, params)
+def _mark_tombstone(
+    issue_key: str,
+    updated_at: str,
+    idempotency_key: str,
+    payload: Dict[str, Any],
+) -> bool:
+    latest = _fetch_latest_issue_item(issue_key)
+    now = _now_iso()
+
+    if latest:
+        sort_key = latest.get("updated_at") or updated_at
+        key = {"issue_key": issue_key, "updated_at": sort_key}
+        update_params = {
+            "Key": key,
+            "UpdateExpression": "SET deleted = :deleted, last_event_type = :event, received_at = :now, idempotency_key = :id",  # noqa: E501
+            "ExpressionAttributeValues": {
+                ":deleted": True,
+                ":event": payload.get("webhookEvent"),
+                ":now": now,
+                ":id": idempotency_key,
+            },
+        }
+        _execute_with_backoff(_TABLE.update_item, update_params)
+        return True
+
+    issue_payload = payload.get("issue") or {}
+    issue_fields = issue_payload.get("fields") or {}
+    fix_versions = [
+        fv.get("name") for fv in issue_fields.get("fixVersions") or [] if fv.get("name")
+    ]
+    item = {
+        "issue_key": issue_key,
+        "updated_at": updated_at,
+        "issue_id": str(issue_payload.get("id") or issue_key),
+        "project_key": (issue_fields.get("project") or {}).get("key"),
+        "status": (issue_fields.get("status") or {}).get("name", "UNKNOWN"),
+        "assignee": (issue_fields.get("assignee") or {}).get("accountId")
+        or (issue_fields.get("assignee") or {}).get("displayName")
+        or "UNASSIGNED",
+        "fix_version": fix_versions[0] if fix_versions else "UNASSIGNED",
+        "fix_versions": fix_versions,
+        "received_at": now,
+        "issue": issue_payload,
+        "deleted": True,
+        "last_event_type": payload.get("webhookEvent"),
+        "idempotency_key": idempotency_key,
+    }
+    _put_item_with_retry(item)
+    return False
+
+
+def _fetch_latest_issue_item(issue_key: str) -> Optional[Dict[str, Any]]:
+    try:
+        response = _TABLE.query(
+            KeyConditionExpression=Key("issue_key").eq(issue_key),
+            ScanIndexForward=False,
+            Limit=1,
+        )
+    except ClientError:
+        raise
+
+    items = response.get("Items") or []
+    if not items:
+        return None
+    return items[0]
+
+
+def _compute_idempotency_key(payload: Dict[str, Any], issue_key: str, updated_at: str) -> str:
+    for key in ("deliveryId", "delivery_id", "eventId", "event_id"):
+        value = payload.get(key)
+        if value:
+            return str(value)
+    changelog = payload.get("changelog") or {}
+    if isinstance(changelog, dict):
+        identifier = changelog.get("id")
+        if identifier:
+            return str(identifier)
+    timestamp = payload.get("timestamp")
+    if timestamp:
+        return f"{issue_key}:{timestamp}"
+    return f"{issue_key}:{updated_at}:{payload.get('webhookEvent')}"
 
 
 def _execute_with_backoff(action, params: Dict[str, Any]) -> None:
@@ -232,11 +318,10 @@ def _execute_with_backoff(action, params: Dict[str, Any]) -> None:
         except ClientError as exc:
             code = (exc.response.get("Error", {}) or {}).get("Code")
             if code == "ConditionalCheckFailedException":
-                issue_id = (
-                    (params.get("Item") or {}).get("issue_id")
-                    or (params.get("Key") or {}).get("issue_id")
-                )
-                LOGGER.info("Skipping outdated webhook", extra={"issue_id": issue_id})
+                item = params.get("Item") or {}
+                key = params.get("Key") or {}
+                issue_key = item.get("issue_key") or key.get("issue_key")
+                LOGGER.info("Skipping outdated webhook", extra={"issue_key": issue_key})
                 return
             if code not in _RETRYABLE_ERRORS or attempt >= max_attempts:
                 raise

@@ -16,13 +16,16 @@ webhook_handler = importlib.import_module("services.jira_sync_webhook.handler")
 class DummyTable:
     def __init__(self) -> None:
         self.items: List[Dict[str, Any]] = []
-        self.deleted: List[Dict[str, Any]] = []
+        self.updated: List[Dict[str, Any]] = []
 
     def put_item(self, **kwargs: Any) -> None:  # pragma: no cover - exercised in tests
         self.items.append(kwargs)
 
-    def delete_item(self, **kwargs: Any) -> None:  # pragma: no cover - exercised in tests
-        self.deleted.append(kwargs)
+    def update_item(self, **kwargs: Any) -> None:  # pragma: no cover - exercised in tests
+        self.updated.append(kwargs)
+
+    def query(self, **kwargs: Any) -> Dict[str, Any]:  # pragma: no cover - exercised in tests
+        return {"Items": []}
 
 
 @pytest.fixture(autouse=True)
@@ -77,7 +80,10 @@ def test_upsert_event_persists_issue(monkeypatch: pytest.MonkeyPatch, _patch_tab
     assert _patch_table.items
     item = _patch_table.items[0]
     assert item["Item"]["issue_id"] == "1000"
+    assert item["Item"]["issue_key"] == "ABC-1"
     assert item["Item"]["fix_version"] == "2024.05"
+    assert item["Item"]["idempotency_key"].startswith("ABC-1")
+    assert item["ConditionExpression"].startswith("attribute_not_exists(idempotency_key)")
 
 
 def test_delete_event_removes_issue(monkeypatch: pytest.MonkeyPatch, _patch_table: DummyTable) -> None:
@@ -89,7 +95,10 @@ def test_delete_event_removes_issue(monkeypatch: pytest.MonkeyPatch, _patch_tabl
     )
     response = webhook_handler.handler(event, None)
     assert response["statusCode"] == 202
-    assert _patch_table.deleted[0]["Key"] == {"issue_id": "1000"}
+    assert _patch_table.items
+    tombstone = _patch_table.items[0]["Item"]
+    assert tombstone["issue_key"] == "ABC-1"
+    assert tombstone["deleted"] is True
 
 
 def test_rejects_invalid_secret(monkeypatch: pytest.MonkeyPatch) -> None:

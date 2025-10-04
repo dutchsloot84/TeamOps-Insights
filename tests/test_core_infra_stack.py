@@ -83,11 +83,13 @@ def test_webhook_lambda_and_api_created() -> None:
             "PointInTimeRecoverySpecification": {"PointInTimeRecoveryEnabled": True},
             "BillingMode": "PAY_PER_REQUEST",
             "KeySchema": [
-                {"AttributeName": "issue_id", "KeyType": "HASH"},
+                {"AttributeName": "issue_key", "KeyType": "HASH"},
+                {"AttributeName": "updated_at", "KeyType": "RANGE"},
             ],
             "AttributeDefinitions": Match.array_with(
                 [
-                    Match.object_like({"AttributeName": "issue_id"}),
+                    Match.object_like({"AttributeName": "issue_key"}),
+                    Match.object_like({"AttributeName": "updated_at"}),
                     Match.object_like({"AttributeName": "fix_version"}),
                     Match.object_like({"AttributeName": "status"}),
                     Match.object_like({"AttributeName": "assignee"}),
@@ -171,3 +173,10 @@ def test_eventbridge_rule_not_created_when_disabled() -> None:
     assert len(rules) == 1
     target = rules[next(iter(rules))]["Properties"]["Targets"][0]
     assert target["Arn"]["Fn::GetAtt"][0].startswith("JiraReconciliationLambda")
+
+
+def test_table_outputs_expose_name_and_arn() -> None:
+    template = _synth_stack()
+    outputs = template.to_json().get("Outputs", {})
+    assert "JiraTableName" in outputs
+    assert "JiraTableArn" in outputs

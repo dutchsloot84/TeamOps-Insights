@@ -29,6 +29,11 @@ Optional flags:
 | `--config PATH` | Override the settings file used for defaults. |
 | `--log-level LEVEL` | Adjust logging verbosity (defaults to `INFO`). |
 
+The DynamoDB probe expects a composite key with both a HASH and RANGE element.
+If the health check reports `Missing range key`, confirm that the cache table
+has `issue_key` (HASH) and `updated_at` (RANGE) defined and that any overrides
+passed via `--table` point at the new schema.
+
 ### Sample Output
 
 ```json
@@ -79,6 +84,10 @@ readiness verdict to each deployment.
 | ------- | ------- | ----- |
 | Secrets Manager | `secretsmanager:GetSecretValue` | Specific release secrets (e.g. `arn:aws:secretsmanager:REGION:ACCOUNT:secret:releasecopilot/*`) |
 | DynamoDB | `DescribeTable`, `PutItem`, `DeleteItem` | ReleaseCopilot Jira cache table (e.g. `arn:aws:dynamodb:REGION:ACCOUNT:table/releasecopilot-jira-cache`) |
+
+> The readiness sentinel creates and deletes a single item using both key
+> attributes. Ensure IAM policies grant access to `PutItem`/`DeleteItem` on the
+> composite key, otherwise stale sentinel rows may accumulate.
 | S3 | `PutObject`, `DeleteObject` | Artifact bucket/prefix (e.g. `arn:aws:s3:::releasecopilot-artifacts/readiness/*`) |
 
 ## Troubleshooting

@@ -223,10 +223,7 @@ def build_jira_client(settings: Dict[str, Any]) -> JiraClient:
 
 def build_jira_store(settings: Dict[str, Any]) -> JiraIssueStore:
     storage_cfg = settings.get("storage", {})
-    table_name = (
-        storage_cfg.get("dynamodb", {}).get("jira_issue_table")
-        or settings.get("jira", {}).get("issue_table_name")
-    )
+    table_name = storage_cfg.get("dynamodb", {}).get("jira_issue_table")
     if not table_name:
         raise RuntimeError("Jira issue DynamoDB table name is not configured")
 

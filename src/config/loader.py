@@ -106,10 +106,19 @@ def get_s3_destination(config: Mapping[str, Any]) -> Tuple[str | None, str | Non
 def get_dynamodb_table(config: Mapping[str, Any]) -> str | None:
     """Return the DynamoDB table name used for Jira webhook caches."""
 
+    storage_cfg = config.get("storage", {}) if isinstance(config, Mapping) else {}
+    if isinstance(storage_cfg, Mapping):
+        dynamodb_cfg = storage_cfg.get("dynamodb", {}) if isinstance(storage_cfg, Mapping) else {}
+        if isinstance(dynamodb_cfg, Mapping):
+            table_name = dynamodb_cfg.get("jira_issue_table")
+            if table_name:
+                return str(table_name)
+
+    # Fallback to legacy location for backwards compatibility
     jira_cfg = config.get("jira", {}) if isinstance(config, Mapping) else {}
     if isinstance(jira_cfg, Mapping):
-        table_name = jira_cfg.get("issue_table_name")
-        return str(table_name) if table_name else None
+        legacy = jira_cfg.get("issue_table_name")
+        return str(legacy) if legacy else None
     return None
 
 

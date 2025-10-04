@@ -80,7 +80,14 @@ class JiraIssueStore:
             raise JiraQueryError("Failed to query Jira issue store", context=context) from exc
 
         issues: List[Dict[str, Any]] = []
+        seen_issue_keys: set[str] = set()
         for item in items:
+            issue_key = item.get("issue_key") or item.get("issue_id")
+            if not issue_key:
+                continue
+            if issue_key in seen_issue_keys:
+                continue
+            seen_issue_keys.add(issue_key)
             if item.get("deleted"):
                 continue
             issue_payload = item.get("issue")
