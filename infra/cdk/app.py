@@ -7,6 +7,7 @@ import os
 from typing import Any, Dict, Optional, Tuple
 
 import aws_cdk as cdk
+from cdk_nag import AwsSolutionsChecks, NagSuppressions
 
 from infra.cdk.core_stack import CoreStack
 
@@ -123,6 +124,7 @@ def _resolve_environment(app: cdk.App, context: Dict[str, Any]) -> Tuple[Optiona
 
 
 app = cdk.App()
+cdk.Aspects.of(app).add(AwsSolutionsChecks())
 context = _load_context(app)
 
 account_id, region = _resolve_environment(app, context)
@@ -132,7 +134,7 @@ bucket_name = f"{context['bucketBase']}{bucket_suffix}"
 
 environment = cdk.Environment(account=account_id, region=region)
 
-CoreStack(
+core_stack = CoreStack(
     app,
     f"ReleaseCopilot-{context['env']}-Core",
     env=environment,
@@ -152,6 +154,66 @@ CoreStack(
     reconciliation_jql_template=context["reconciliationJqlTemplate"] or None,
     jira_base_url=context["jiraBaseUrl"] or None,
     metrics_namespace=context["metricsNamespace"] or None,
+)
+
+NagSuppressions.add_stack_suppressions(
+    core_stack,
+    suppressions=[
+        {
+            "id": "AwsSolutions-S1",
+            "reason": (
+                "Artifacts bucket access is audited through CloudTrail and used only for short-lived deployment assets."
+            ),
+        },
+        {
+            "id": "AwsSolutions-SMG4",
+            "reason": (
+                "OAuth credentials are managed through Atlassian admin flows, so automated rotation is not currently possible."
+            ),
+        },
+        {
+            "id": "AwsSolutions-IAM5",
+            "reason": (
+                "Scoped wildcards are required for DynamoDB secondary indexes and the ReleaseCopilot artifacts prefix."
+            ),
+        },
+        {
+            "id": "AwsSolutions-L1",
+            "reason": (
+                "Python 3.11 remains the validated runtime for the packaged dependencies and stays within AWS support windows."
+            ),
+        },
+        {
+            "id": "AwsSolutions-IAM4",
+            "reason": (
+                "Service-linked managed policies are retained for Lambda and API Gateway to preserve AWS operational baselines."
+            ),
+        },
+        {
+            "id": "AwsSolutions-APIG2",
+            "reason": (
+                "The Jira webhook payload is validated inside the Lambda handler using a shared secret, making request validation redundant."
+            ),
+        },
+        {
+            "id": "AwsSolutions-APIG3",
+            "reason": (
+                "A WAF is deferred while the webhook remains protected by shared-secret authentication and rate limiting upstream."
+            ),
+        },
+        {
+            "id": "AwsSolutions-APIG4",
+            "reason": (
+                "Shared-secret authentication performed by the Lambda handler intentionally replaces API Gateway authorizers."
+            ),
+        },
+        {
+            "id": "AwsSolutions-COG4",
+            "reason": (
+                "Atlassian cannot integrate with Cognito authorizers; the webhook enforces authentication through the shared secret."
+            ),
+        },
+    ],
 )
 
 app.synth()

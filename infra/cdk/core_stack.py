@@ -79,6 +79,7 @@ class CoreStack(Stack):
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             versioned=True,
+            enforce_ssl=True,
         )
 
         self.bucket.add_lifecycle_rule(
@@ -122,8 +123,6 @@ class CoreStack(Stack):
             description="Least-privilege execution role for ReleaseCopilot Lambda",
         )
 
-        self._attach_policies()
-
         environment = {
             "RC_S3_BUCKET": self.bucket.bucket_name,
             "RC_S3_PREFIX": self.RC_S3_PREFIX,
@@ -133,7 +132,7 @@ class CoreStack(Stack):
         clamped_timeout = max(180, min(lambda_timeout_sec, 300))
         clamped_memory = max(512, min(lambda_memory_mb, 1024))
 
-        release_lambda_log_group = logs.LogGroup(
+        self.release_lambda_log_group = logs.LogGroup(
             self,
             "ReleaseCopilotLambdaLogGroup",
             retention=logs.RetentionDays.ONE_MONTH,
@@ -150,7 +149,7 @@ class CoreStack(Stack):
             memory_size=clamped_memory,
             role=self.execution_role,
             environment=environment,
-            log_group=release_lambda_log_group,
+            log_group=self.release_lambda_log_group,
         )
 
         self.jira_table = dynamodb.Table(
@@ -210,7 +209,7 @@ class CoreStack(Stack):
         if webhook_secret:
             webhook_environment["WEBHOOK_SECRET_ARN"] = webhook_secret.secret_arn
 
-        webhook_log_group = logs.LogGroup(
+        self.webhook_lambda_log_group = logs.LogGroup(
             self,
             "JiraWebhookLambdaLogGroup",
             retention=logs.RetentionDays.ONE_MONTH,
@@ -226,7 +225,7 @@ class CoreStack(Stack):
             timeout=Duration.seconds(60),
             memory_size=256,
             environment=webhook_environment,
-            log_group=webhook_log_group,
+            log_group=self.webhook_lambda_log_group,
         )
 
         self.jira_table.grant_read_write_data(self.webhook_lambda)
@@ -251,9 +250,10 @@ class CoreStack(Stack):
             "JiraReconciliationDLQ",
             retention_period=Duration.days(14),
             encryption=sqs.QueueEncryption.KMS_MANAGED,
+            enforce_ssl=True,
         )
 
-        reconciliation_log_group = logs.LogGroup(
+        self.reconciliation_lambda_log_group = logs.LogGroup(
             self,
             "JiraReconciliationLambdaLogGroup",
             retention=logs.RetentionDays.ONE_MONTH,
@@ -269,15 +269,24 @@ class CoreStack(Stack):
             timeout=Duration.seconds(300),
             memory_size=512,
             environment=reconciliation_environment,
-            log_group=reconciliation_log_group,
+            log_group=self.reconciliation_lambda_log_group,
             dead_letter_queue=self.reconciliation_dlq,
             dead_letter_queue_enabled=True,
             max_event_age=Duration.hours(6),
             retry_attempts=2,
         )
 
+        self._attach_policies()
+
         self.jira_table.grant_read_write_data(self.reconciliation_lambda)
         self.jira_secret.grant_read(self.reconciliation_lambda)
+
+        self.webhook_api_access_logs = logs.LogGroup(
+            self,
+            "JiraWebhookApiAccessLogs",
+            retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
 
         self.webhook_api = apigateway.RestApi(
             self,
@@ -287,6 +296,20 @@ class CoreStack(Stack):
                 logging_level=apigateway.MethodLoggingLevel.INFO,
                 data_trace_enabled=False,
                 metrics_enabled=True,
+                access_log_destination=apigateway.LogGroupLogDestination(
+                    self.webhook_api_access_logs
+                ),
+                access_log_format=apigateway.AccessLogFormat.json_with_standard_fields(
+                    caller=True,
+                    http_method=True,
+                    ip=True,
+                    protocol=True,
+                    request_time=True,
+                    resource_path=True,
+                    response_length=True,
+                    status=True,
+                    user=True,
+                ),
             ),
         )
 
@@ -312,7 +335,11 @@ class CoreStack(Stack):
 
     def _attach_policies(self) -> None:
         prefix_objects_arn = self.bucket.arn_for_objects(f"{self.RC_S3_PREFIX}/*")
-        log_group_arn = f"arn:aws:logs:{self.region}:{self.account}:log-group:/aws/lambda/*"
+        log_group_arns = [
+            self.release_lambda_log_group.log_group_arn,
+            self.webhook_lambda_log_group.log_group_arn,
+            self.reconciliation_lambda_log_group.log_group_arn,
+        ]
 
         iam.Policy(
             self,
@@ -351,7 +378,7 @@ class CoreStack(Stack):
                         "logs:CreateLogStream",
                         "logs:PutLogEvents",
                     ],
-                    resources=[log_group_arn],
+                    resources=log_group_arns,
                 ),
             ],
         ).attach_to_role(self.execution_role)
