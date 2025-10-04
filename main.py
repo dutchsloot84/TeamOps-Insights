@@ -21,7 +21,6 @@ except Exception:  # pragma: no cover - ignore missing dependency
 from clients.bitbucket_client import BitbucketClient
 from clients.jira_client import JiraClient, compute_fix_version_window
 from clients.jira_store import JiraIssueStore
-from clients.secrets_manager import CredentialStore, SecretsManager
 from config.settings import load_settings
 from exporters.excel_exporter import ExcelExporter
 from exporters.json_exporter import JSONExporter
@@ -100,16 +99,22 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> tuple[argparse.Namespace
 def run_audit(config: AuditConfig) -> Dict[str, Any]:
     logger = get_logger(__name__)
 
-    settings = load_settings()
+    overrides: Dict[str, Any] = {}
+    if config.s3_bucket or config.s3_prefix:
+        overrides.setdefault("storage", {}).setdefault("s3", {})
+        if config.s3_bucket:
+            overrides["storage"]["s3"]["bucket"] = config.s3_bucket
+        if config.s3_prefix:
+            overrides["storage"]["s3"]["prefix"] = config.s3_prefix
+
+    settings = load_settings(overrides=overrides)
     region = settings.get("aws", {}).get("region")
-    secrets_manager = SecretsManager(region_name=region)
-    credential_store = CredentialStore(secrets_manager=secrets_manager)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
-    jira_store = build_jira_store(settings, credential_store)
-    bitbucket_client = build_bitbucket_client(settings, credential_store)
+    jira_store = build_jira_store(settings)
+    bitbucket_client = build_bitbucket_client(settings)
 
     freeze_dt = parse_freeze_date(config.freeze_date)
     window = compute_fix_version_window(freeze_dt, config.window_days)
@@ -194,50 +199,33 @@ def run_audit(config: AuditConfig) -> Dict[str, Any]:
     return {"summary": audit_result.summary, "artifacts": artifacts}
 
 
-def build_jira_client(settings: Dict[str, Any], credential_store: CredentialStore) -> JiraClient:
+def build_jira_client(settings: Dict[str, Any]) -> JiraClient:
     jira_cfg = settings.get("jira", {})
-    aws_cfg = settings.get("aws", {})
-    secret_id = (
-        aws_cfg.get("secrets", {}).get("jira")
-        or os.getenv("JIRA_SECRET_ARN")
-        or os.getenv("OAUTH_SECRET_ARN")
-    )
 
-    base_url = credential_store.get(
-        "JIRA_BASE_URL",
-        secret_id=secret_id,
-        default=jira_cfg.get("base_url"),
-    )
+    base_url = jira_cfg.get("base_url")
     if not base_url:
         raise RuntimeError("Jira base URL is not configured")
 
-    token_expiry_raw = credential_store.get("JIRA_TOKEN_EXPIRY", secret_id=secret_id)
+    credentials = jira_cfg.get("credentials", {})
+    token_expiry_raw = credentials.get("token_expiry")
     token_expiry = int(token_expiry_raw) if token_expiry_raw else None
 
     return JiraClient(
         base_url=base_url,
-        client_id=credential_store.get("JIRA_CLIENT_ID", secret_id=secret_id),
-        client_secret=credential_store.get("JIRA_CLIENT_SECRET", secret_id=secret_id),
-        access_token=credential_store.get("JIRA_ACCESS_TOKEN", secret_id=secret_id),
-        refresh_token=credential_store.get("JIRA_REFRESH_TOKEN", secret_id=secret_id),
+        client_id=credentials.get("client_id"),
+        client_secret=credentials.get("client_secret"),
+        access_token=credentials.get("access_token"),
+        refresh_token=credentials.get("refresh_token"),
         token_expiry=token_expiry,
         cache_dir=TEMP_DIR / "jira",
     )
 
 
-def build_jira_store(settings: Dict[str, Any], credential_store: CredentialStore) -> JiraIssueStore:
-    jira_cfg = settings.get("jira", {})
-    aws_cfg = settings.get("aws", {})
-    secret_id = (
-        aws_cfg.get("secrets", {}).get("jira")
-        or os.getenv("JIRA_SECRET_ARN")
-        or os.getenv("OAUTH_SECRET_ARN")
-    )
-
-    table_name = credential_store.get(
-        "JIRA_TABLE_NAME",
-        secret_id=secret_id,
-        default=jira_cfg.get("issue_table_name"),
+def build_jira_store(settings: Dict[str, Any]) -> JiraIssueStore:
+    storage_cfg = settings.get("storage", {})
+    table_name = (
+        storage_cfg.get("dynamodb", {}).get("jira_issue_table")
+        or settings.get("jira", {}).get("issue_table_name")
     )
     if not table_name:
         raise RuntimeError("Jira issue DynamoDB table name is not configured")
@@ -246,28 +234,20 @@ def build_jira_store(settings: Dict[str, Any], credential_store: CredentialStore
     return JiraIssueStore(table_name=table_name, region_name=region)
 
 
-def build_bitbucket_client(settings: Dict[str, Any], credential_store: CredentialStore) -> BitbucketClient:
+def build_bitbucket_client(settings: Dict[str, Any]) -> BitbucketClient:
     bitbucket_cfg = settings.get("bitbucket", {})
-    aws_cfg = settings.get("aws", {})
-    secret_id = (
-        aws_cfg.get("secrets", {}).get("bitbucket")
-        or os.getenv("BITBUCKET_SECRET_ARN")
-        or os.getenv("OAUTH_SECRET_ARN")
-    )
 
-    workspace = credential_store.get(
-        "BITBUCKET_WORKSPACE",
-        secret_id=secret_id,
-        default=bitbucket_cfg.get("workspace"),
-    )
+    workspace = bitbucket_cfg.get("workspace")
     if not workspace:
         raise RuntimeError("Bitbucket workspace is not configured")
 
+    credentials = bitbucket_cfg.get("credentials", {})
+
     return BitbucketClient(
         workspace=workspace,
-        username=credential_store.get("BITBUCKET_USERNAME", secret_id=secret_id),
-        app_password=credential_store.get("BITBUCKET_APP_PASSWORD", secret_id=secret_id),
-        access_token=credential_store.get("BITBUCKET_ACCESS_TOKEN", secret_id=secret_id),
+        username=credentials.get("username"),
+        app_password=credentials.get("app_password"),
+        access_token=credentials.get("access_token"),
         cache_dir=TEMP_DIR / "bitbucket",
     )
 
@@ -312,7 +292,7 @@ def upload_artifacts(
     logger = get_logger(__name__)
     bucket = (
         config.s3_bucket
-        or settings.get("aws", {}).get("s3_bucket")
+        or settings.get("storage", {}).get("s3", {}).get("bucket")
         or os.getenv("ARTIFACTS_BUCKET")
     )
     if not bucket:
@@ -321,7 +301,7 @@ def upload_artifacts(
 
     prefix_root = (
         config.s3_prefix
-        or settings.get("aws", {}).get("s3_prefix")
+        or settings.get("storage", {}).get("s3", {}).get("prefix")
         or os.getenv("ARTIFACTS_PREFIX")
         or "releasecopilot"
     )

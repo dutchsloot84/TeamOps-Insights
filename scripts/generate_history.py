@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.github import ProjectsV2Client
+from scripts.github import ProjectsV2Client  # noqa: E402
 
 LOGGER = logging.getLogger(__name__)
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
@@ -191,7 +191,9 @@ class GithubClient:
             results.append(issue)
         return results
 
-    def list_merged_prs(self, since: dt.datetime, until: dt.datetime) -> List[PullRequest]:
+    def list_merged_prs(
+        self, since: dt.datetime, until: dt.datetime
+    ) -> List[PullRequest]:
         params = {
             "state": "closed",
             "per_page": 100,
@@ -223,20 +225,14 @@ class GithubClient:
             "since": since.strftime(ISO_FORMAT),
             "per_page": 100,
         }
-        return list(
-            self.paginate(f"{self.base_url}/issues/comments", params)
-        )
+        return list(self.paginate(f"{self.base_url}/issues/comments", params))
 
     def list_review_comments(self, since: dt.datetime) -> List[dict]:
         params = {
             "since": since.strftime(ISO_FORMAT),
             "per_page": 100,
         }
-        return list(
-            self.paginate(
-                f"{self.base_url}/pulls/comments", params
-            )
-        )
+        return list(self.paginate(f"{self.base_url}/pulls/comments", params))
 
     def get_issue(self, number: int) -> dict:
         response = self._request("GET", f"{self.base_url}/issues/{number}")
@@ -271,9 +267,7 @@ def _parse_since(value: str) -> dt.datetime:
     now = dt.datetime.now(dt.timezone.utc)
 
     if value.isdigit():
-        raise ValueError(
-            f"Invalid --since value '{value}'. Did you mean '{value}d'?"
-        )
+        raise ValueError(f"Invalid --since value '{value}'. Did you mean '{value}d'?")
 
     if value.endswith("d") and value[:-1].isdigit():
         days = int(value[:-1])
@@ -338,10 +332,14 @@ def _determine_repo(arg_repo: Optional[str]) -> str:
     if env_repo:
         return env_repo
     try:
-        output = subprocess.check_output(
-            ["git", "config", "--get", "remote.origin.url"],
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
+        output = (
+            subprocess.check_output(
+                ["git", "config", "--get", "remote.origin.url"],
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
     except (subprocess.CalledProcessError, FileNotFoundError):
         output = ""
     if output:
@@ -359,7 +357,9 @@ def _determine_repo(arg_repo: Optional[str]) -> str:
     )
 
 
-def _load_historian_config(config_path: Optional[Path], root: Path) -> Dict[str, object]:
+def _load_historian_config(
+    config_path: Optional[Path], root: Path
+) -> Dict[str, object]:
     search_path = config_path or root / "config" / "defaults.yml"
     if not search_path.exists():
         raise FileNotFoundError(
@@ -468,21 +468,21 @@ def _collect_project_section(
                     issue_map.setdefault(issue.number, issue)
             except Exception as exc:  # noqa: BLE001 - log and continue
                 LOGGER.warning("Label fallback failed for %s: %s", label, exc)
-        filters.append(
-            f"Scope: GitHub issues labeled {', '.join(labels)}"
-        )
+        filters.append(f"Scope: GitHub issues labeled {', '.join(labels)}")
     elif project_enabled:
         filters.append("Scope: GitHub issues via Projects v2 board")
     elif labels:
-        filters.append(
-            f"Scope: GitHub issues labeled {', '.join(labels)}"
-        )
+        filters.append(f"Scope: GitHub issues labeled {', '.join(labels)}")
     else:
         filters.append("Scope: No project or label filters configured")
 
     issues = sorted(issue_map.values(), key=lambda item: item.number)
     entries = [_format_issue(issue, include_status=True) for issue in issues]
-    metadata = {"issue_status": {issue.number: issue.status or fallback_status for issue in issues}}
+    metadata = {
+        "issue_status": {
+            issue.number: issue.status or fallback_status for issue in issues
+        }
+    }
     return SectionResult(entries=entries, filters=filters, metadata=metadata)
 
 
@@ -511,38 +511,124 @@ def _extract_comment_markers(
         except ValueError:
             continue
         item_type = "pull_request" if comment.get("pull_request_url") else "issue"
-        status = status_lookup.get((item_type, number)) or status_lookup.get(("issue", number))
+        status = status_lookup.get((item_type, number)) or status_lookup.get(
+            ("issue", number)
+        )
         author = (comment.get("user") or {}).get("login")
         url = comment.get("html_url")
         comment_id = str(comment.get("id") or comment.get("node_id") or "")
-        for index, line in enumerate(body.splitlines()):
-            stripped = line.strip()
+        lines = body.splitlines()
+        line_total = len(lines)
+        index = 0
+        while index < line_total:
+            stripped = lines[index].strip()
             if not stripped:
+                index += 1
                 continue
+            matched_marker = None
             for marker in marker_prefixes:
                 if stripped.startswith(marker):
-                    detail = stripped[len(marker) :].strip()
-                    label = marker.rstrip(":")
+                    matched_marker = marker
+                    break
+            if not matched_marker:
+                index += 1
+                continue
+            detail_text = stripped[len(matched_marker) :].strip()
+            label = matched_marker.rstrip(":")
+            if detail_text:
+                results.append(
+                    NoteMarker(
+                        updated=updated,
+                        marker=label,
+                        detail=detail_text,
+                        status=status,
+                        number=number,
+                        item_type=item_type,
+                        url=url,
+                        author=author,
+                        comment_id=comment_id,
+                        line_index=index,
+                    )
+                )
+                index += 1
+                continue
+
+            # Block-style markers – capture following bullet items until the next marker.
+            search_index = index + 1
+            while search_index < line_total and not lines[search_index].strip():
+                search_index += 1
+
+            while search_index < line_total:
+                candidate = lines[search_index]
+                candidate_stripped = candidate.strip()
+                if not candidate_stripped:
+                    break
+                if any(
+                    candidate_stripped.startswith(prefix) for prefix in marker_prefixes
+                ):
+                    break
+                if not candidate.lstrip().startswith("-"):
+                    break
+
+                bullet_start = search_index
+                bullet_lines: List[str] = []
+                first_line = candidate.lstrip()[1:].lstrip()
+                bullet_lines.append(first_line)
+                search_index += 1
+
+                while search_index < line_total:
+                    continuation = lines[search_index]
+                    continuation_stripped = continuation.strip()
+                    if not continuation_stripped:
+                        break
+                    if any(
+                        continuation_stripped.startswith(prefix)
+                        for prefix in marker_prefixes
+                    ):
+                        break
+                    if continuation.lstrip().startswith("-"):
+                        break
+                    bullet_lines.append(continuation.strip())
+                    search_index += 1
+
+                detail_value = "\n".join(bullet_lines).strip()
+                if detail_value:
                     results.append(
                         NoteMarker(
                             updated=updated,
                             marker=label,
-                            detail=detail,
+                            detail=detail_value,
                             status=status,
                             number=number,
                             item_type=item_type,
                             url=url,
                             author=author,
                             comment_id=comment_id,
-                            line_index=index,
+                            line_index=bullet_start,
                         )
                     )
+
+                if search_index >= line_total:
+                    break
+                if not lines[search_index].strip():
+                    break
+                if any(
+                    lines[search_index].strip().startswith(prefix)
+                    for prefix in marker_prefixes
+                ):
+                    break
+                if not lines[search_index].lstrip().startswith("-"):
+                    break
+
+            index = search_index
+        # end while index
     return results
 
 
 def _format_note_entry(marker: NoteMarker, annotate_group: bool) -> str:
     if marker.detail:
-        entry = f"- **{marker.marker}:** {marker.detail}"
+        detail = marker.detail.replace("\n", "\n  ")
+        entry = f"- **{marker.marker}:** {detail}"
     else:
         entry = f"- **{marker.marker}**"
     meta_parts: List[str] = []
@@ -587,7 +673,8 @@ def _collect_notes_section(
     if scan_pr_comments:
         scope_fragments.append("pull requests")
     filters.append(
-        "Scope: comment bodies for " + (" & ".join(scope_fragments) if scope_fragments else "none")
+        "Scope: comment bodies for "
+        + (" & ".join(scope_fragments) if scope_fragments else "none")
     )
     if scan_notes_files:
         filters.append(f"Mirrored notes files: {notes_glob}")
@@ -603,9 +690,7 @@ def _collect_notes_section(
                 LOGGER.warning("Failed to fetch issue comments: %s", exc)
                 issue_comments = []
             marker_entries.extend(
-                _extract_comment_markers(
-                    issue_comments, markers, status_lookup, until
-                )
+                _extract_comment_markers(issue_comments, markers, status_lookup, until)
             )
         if scan_pr_comments:
             try:
@@ -614,9 +699,7 @@ def _collect_notes_section(
                 LOGGER.warning("Failed to fetch PR review comments: %s", exc)
                 review_comments = []
             marker_entries.extend(
-                _extract_comment_markers(
-                    review_comments, markers, status_lookup, until
-                )
+                _extract_comment_markers(review_comments, markers, status_lookup, until)
             )
     else:
         LOGGER.debug("No markers configured for Notes & Decisions collector")
@@ -840,6 +923,7 @@ def _append_note_entry(
     with path.open("a", encoding="utf-8") as handle:
         handle.write("\n".join(write_lines))
 
+
 def _collect_github_actions_artifacts(
     client: GithubClient,
     workflows: Sequence[str],
@@ -951,7 +1035,8 @@ def _collect_artifacts_section(
     if gha_cfg.get("enabled"):
         workflows = gha_cfg.get("workflows", [])
         filters.append(
-            "GitHub Actions workflows: " + (", ".join(workflows) if workflows else "all")
+            "GitHub Actions workflows: "
+            + (", ".join(workflows) if workflows else "all")
         )
         entries.extend(
             _collect_github_actions_artifacts(client, workflows, since, until)
@@ -969,7 +1054,9 @@ def _collect_artifacts_section(
         entries.extend(_collect_s3_artifacts(bucket, prefixes, since, until))
     elif bucket and prefixes:
         filters.append(
-            f"S3 prefixes: s3://{bucket}/" + ", s3://{bucket}/".join(prefixes) + " (disabled)"
+            f"S3 prefixes: s3://{bucket}/"
+            + ", s3://{bucket}/".join(prefixes)
+            + " (disabled)"
         )
     else:
         filters.append("S3 prefixes: disabled")
@@ -1076,8 +1163,18 @@ def render_history(args: argparse.Namespace) -> HistoryDocument:
     )
 
     status_lookup: Dict[Tuple[str, int], str] = {}
-    status_lookup.update({("issue", num): "Completed" for num in completed_result.metadata.get("issue_numbers", set())})
-    status_lookup.update({("pull_request", num): "Completed" for num in completed_result.metadata.get("pr_numbers", set())})
+    status_lookup.update(
+        {
+            ("issue", num): "Completed"
+            for num in completed_result.metadata.get("issue_numbers", set())
+        }
+    )
+    status_lookup.update(
+        {
+            ("pull_request", num): "Completed"
+            for num in completed_result.metadata.get("pr_numbers", set())
+        }
+    )
     for number, status in in_progress_result.metadata.get("issue_status", {}).items():
         status_lookup[("issue", number)] = status or "In Progress"
     for number, status in backlog_result.metadata.get("issue_status", {}).items():
@@ -1152,8 +1249,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--since",
         default="7d",
         help=(
-            "Relative format like '7d'/'24h' or ISO timestamp "
-            "(YYYY-MM-DDTHH:MM:SSZ)"
+            "Relative format like '7d'/'24h' or ISO timestamp " "(YYYY-MM-DDTHH:MM:SSZ)"
         ),
     )
     parser.add_argument(
@@ -1168,14 +1264,22 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repo", help="owner/name repository override")
     parser.add_argument("--token", help="GitHub API token (defaults to GITHUB_TOKEN)")
     parser.add_argument("--template", type=Path, help="Path to custom template")
-    parser.add_argument("--config", type=Path, help="Path to historian YAML configuration")
+    parser.add_argument(
+        "--config", type=Path, help="Path to historian YAML configuration"
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the generated Markdown without writing",
     )
-    parser.add_argument("--debug-scan", action="store_true", help="Emit additional scan diagnostics and default to DEBUG logging")
-    parser.add_argument("--log-level", help="Logging level (overrides --debug-scan default)")
+    parser.add_argument(
+        "--debug-scan",
+        action="store_true",
+        help="Emit additional scan diagnostics and default to DEBUG logging",
+    )
+    parser.add_argument(
+        "--log-level", help="Logging level (overrides --debug-scan default)"
+    )
     parser.add_argument(
         "--root",
         default=".",
@@ -1203,7 +1307,10 @@ def main() -> None:
     logging.basicConfig(level=_determine_log_level(args))
 
     if args.debug_scan:
-        LOGGER.debug("Debug scan enabled. Effective log level: %s", logging.getLevelName(logging.getLogger().getEffectiveLevel()))
+        LOGGER.debug(
+            "Debug scan enabled. Effective log level: %s",
+            logging.getLevelName(logging.getLogger().getEffectiveLevel()),
+        )
         safe_args = {k: v for k, v in vars(args).items() if k not in {"token"}}
         LOGGER.debug("CLI arguments (sanitized): %s", safe_args)
 
@@ -1232,7 +1339,10 @@ def main() -> None:
     LOGGER.info("Wrote %s", output_path)
 
     if args.debug_scan:
-        LOGGER.debug("Output directory contents: %s", sorted(p.name for p in output_dir.iterdir()))
+        LOGGER.debug(
+            "Output directory contents: %s",
+            sorted(p.name for p in output_dir.iterdir()),
+        )
         if args.template:
             LOGGER.debug("Template path: %s", Path(args.template).resolve())
         if args.config:
@@ -1243,7 +1353,9 @@ def main() -> None:
         relative_output = output_path.resolve().relative_to(root_path)
     except ValueError:
         relative_output = output_path.resolve()
-    _ensure_history_index(index_path, relative_output, document.since, document.until, document.counts)
+    _ensure_history_index(
+        index_path, relative_output, document.since, document.until, document.counts
+    )
 
 
 if __name__ == "__main__":

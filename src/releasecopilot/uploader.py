@@ -17,6 +17,28 @@ def build_s3_client(*, region_name: Optional[str] = None):
     return boto3.client("s3", region_name=region_name)
 
 
+def put_object(
+    bucket: str,
+    key: str,
+    body: bytes | str,
+    *,
+    client=None,
+    region_name: Optional[str] = None,
+    content_type: Optional[str] = None,
+    metadata: Optional[Dict[str, str]] = None,
+) -> None:
+    """Write a single object to S3 using server-side encryption."""
+
+    client = client or build_s3_client(region_name=region_name)
+    payload = body.encode("utf-8") if isinstance(body, str) else body
+    extra_args: Dict[str, str] = {"ServerSideEncryption": "AES256"}
+    if content_type:
+        extra_args["ContentType"] = content_type
+    if metadata:
+        extra_args["Metadata"] = {key: str(value) for key, value in metadata.items() if value is not None}
+    client.put_object(Bucket=bucket, Key=key, Body=payload, **extra_args)
+
+
 def upload_directory(
     bucket: str,
     prefix: str,
@@ -99,5 +121,5 @@ def _guess_content_type(path: Path) -> Optional[str]:
     return None
 
 
-__all__ = ["build_s3_client", "upload_directory"]
+__all__ = ["build_s3_client", "put_object", "upload_directory"]
 

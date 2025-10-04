@@ -1,21 +1,28 @@
-# Default configuration for releasecopilot-ai.
-# Replace placeholder values with environment-specific details.
-aws:
-  region: us-east-1
-  s3_bucket: releasecopilot-ai-artifacts
-  s3_prefix: releasecopilot
-  secrets:
-    jira: releasecopilot-ai/jira
-    bitbucket: releasecopilot-ai/bitbucket
+# Optional environment-specific overrides for Release Copilot.
+#
+# This file is intentionally lightweight and exists to demonstrate the structure
+# expected by ``config/defaults.yml``. Provide real values as needed for local
+# experimentation or non-production environments. Production deployments should
+# rely on environment variables and AWS Secrets Manager.
+
+storage:
+  s3:
+    bucket: releasecopilot-ai-artifacts
+    prefix: releasecopilot/reports
+
 jira:
   base_url: https://your-domain.atlassian.net
   cloud_id: your-cloud-id
-  issue_table_name: releasecopilot-ai-jira-issues
-  reconciliation:
-    cron: cron(15 7 * * ? *)
-    jql_template: "fixVersion = '{fix_version}' ORDER BY key"
-    fix_versions: ""
+
 bitbucket:
   workspace: your-workspace
-  default_branches:
-    - develop
+  repositories:
+    - demo-repo
+
+secrets:
+  jira_oauth:
+    arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:releasecopilot/jira/oauth
+  bitbucket_token:
+    arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:releasecopilot/bitbucket/token
+  webhook_secret:
+    arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:releasecopilot/jira/webhook

@@ -20,6 +20,7 @@ historian:
 
 * `scan_notes_files` controls whether the section surfaces the configured notes directory in the rendered filters so readers know where mirrored files land.
 * `annotate_group` adds the Completed / In Progress / Backlog annotation to each entry.
+* Block-style markers (a `Decision:` line followed by `-` bullets) are supported and preferred for PR review threads. See [Marker conventions](../markers.md) for examples.
 
 ## Notes file mirroring
 

@@ -1,79 +1,43 @@
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 
-import pytest
+from src.config.loader import load_config
 
-from releasecopilot.config import build_config, merge_configs
-
-
-def test_merge_configs_precedence():
-    low = {"key": "low", "other": "base"}
-    mid = {"key": "mid"}
-    high = {"key": "high"}
-    merged = merge_configs(high, mid, low)
-    assert merged["key"] == "high"
-    assert merged["other"] == "base"
+from tests.helpers_config import StubCredentialStore, write_defaults
 
 
-def test_build_config_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    yaml_path = tmp_path / "releasecopilot.yaml"
-    yaml_path.write_text(
+def test_override_file_applies_after_environment(tmp_path: Path) -> None:
+    defaults = write_defaults(tmp_path)
+    overrides_file = tmp_path / "settings.yaml"
+    overrides_file.write_text(
         """
-fix_version: 1.0.0
-jira_base: https://yaml-jira
-bitbucket_base: https://yaml-bitbucket
-"""
+storage:
+  s3:
+    bucket: override-bucket
+""",
+        encoding="utf-8",
     )
 
-    monkeypatch.setenv("JIRA_BASE", "https://env-jira")
-    monkeypatch.setenv("FIX_VERSION", "2.0.0")
-
-    args = argparse.Namespace(
-        config=str(yaml_path),
-        fix_version="3.0.0",
-        jira_base="https://cli-jira",
-        bitbucket_base=None,
-        jira_user=None,
-        jira_token=None,
-        bitbucket_token=None,
-        use_aws_secrets_manager=None,
+    env = {"ARTIFACTS_BUCKET": "env-bucket"}
+    config = load_config(
+        defaults_path=defaults,
+        override_path=overrides_file,
+        env=env,
+        credential_store=StubCredentialStore(),
     )
 
-    config = build_config(args)
-
-    assert config["jira_base"] == "https://cli-jira"
-    assert config["fix_version"] == "3.0.0"
-    assert config["bitbucket_base"] == "https://yaml-bitbucket"
+    assert config["storage"]["s3"]["bucket"] == "override-bucket"
 
 
-def test_build_config_env_over_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    yaml_path = tmp_path / "releasecopilot.yaml"
-    yaml_path.write_text(
-        """
-fix_version: 1.0.0
-jira_base: https://yaml-jira
-bitbucket_base: https://yaml-bitbucket
-"""
+def test_list_overrides_replace_values(tmp_path: Path) -> None:
+    defaults = write_defaults(tmp_path)
+    overrides = {"bitbucket": {"repositories": ["repo-1", "repo-2"]}}
+
+    config = load_config(
+        defaults_path=defaults,
+        overrides=overrides,
+        credential_store=StubCredentialStore(),
     )
 
-    monkeypatch.setenv("BITBUCKET_BASE", "https://env-bitbucket")
-    monkeypatch.setenv("FIX_VERSION", "2.0.0")
-
-    args = argparse.Namespace(
-        config=str(yaml_path),
-        fix_version=None,
-        jira_base=None,
-        bitbucket_base=None,
-        jira_user=None,
-        jira_token=None,
-        bitbucket_token=None,
-        use_aws_secrets_manager=None,
-    )
-
-    config = build_config(args)
-
-    assert config["bitbucket_base"] == "https://env-bitbucket"
-    assert config["fix_version"] == "2.0.0"
-    assert config["jira_base"] == "https://yaml-jira"
+    assert config["bitbucket"]["repositories"] == ["repo-1", "repo-2"]

@@ -129,6 +129,44 @@ def test_collect_notes_section_aggregates_markers(monkeypatch: pytest.MonkeyPatc
     assert any("Mirrored notes files:" in line for line in result.filters)
 
 
+def test_extract_comment_markers_supports_block_style() -> None:
+    comments = [
+        {
+            "body": (
+                "Decision:\n"
+                "- Canonicalize CDK config to infra/cdk/cdk.json\n"
+                "  and normalize the app to python3 in CI.\n"
+                "- Treat any additional cdk.json outside infra/cdk/cdk.json as unsupported for CI.\n"
+                "\n"
+                "Note: Inline reminder"
+            ),
+            "updated_at": "2024-03-01T15:00:00Z",
+            "issue_url": "https://api.github.com/repos/org/repo/issues/88",
+            "html_url": "https://github.com/org/repo/issues/88#issuecomment-500",
+            "user": {"login": "octocat"},
+            "id": 500,
+        }
+    ]
+
+    markers = generate_history._extract_comment_markers(  # type: ignore[attr-defined]
+        comments=comments,
+        markers=["Decision:", "Note:"],
+        status_lookup={("issue", 88): "In Progress"},
+        until=dt.datetime(2024, 3, 2, tzinfo=dt.timezone.utc),
+    )
+
+    decisions = [item for item in markers if item.marker == "Decision"]
+    notes = [item for item in markers if item.marker == "Note"]
+
+    assert len(decisions) == 2
+    assert decisions[0].detail.startswith("Canonicalize CDK config")
+    assert "and normalize the app" in decisions[0].detail
+    assert decisions[1].detail.startswith("Treat any additional")
+    assert all(item.line_index >= 1 for item in decisions)
+    assert len(notes) == 1
+    assert notes[0].detail == "Inline reminder"
+
+
 def test_collect_artifacts_section_combines_sources(monkeypatch: pytest.MonkeyPatch) -> None:
     data = load_fixture("gha_artifacts.json")
 
