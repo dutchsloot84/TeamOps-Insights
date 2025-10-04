@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReleaseCopilot readiness report",
+  "type": "object",
+  "required": [
+    "version",
+    "timestamp",
+    "overall",
+    "checks"
+  ],
+  "properties": {
+    "version": {"const": "health.v1"},
+    "timestamp": {"type": "string"},
+    "overall": {"enum": ["pass", "fail"]},
+    "cleanup_warning": {"type": "string"},
+    "dry_run": {"type": "boolean"},
+    "checks": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-z0-9_]+$": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": {"enum": ["pass", "fail"]},
+            "resource": {"type": "string"},
+            "reason": {"type": "string"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
