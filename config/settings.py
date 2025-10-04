@@ -1,15 +1,14 @@
 """Configuration helpers for releasecopilot."""
+
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 from typing import Any, Mapping
 
-from src.config.loader import load_config
+from src.config.loader import DEFAULT_OVERRIDE_PATH, load_config
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_SETTINGS_PATH = Path(__file__).with_name("settings.yaml")
 
 
 def load_settings(
@@ -22,9 +21,11 @@ def load_settings(
 ) -> dict[str, Any]:
     """Load the layered configuration shared by the CLI and Lambda paths."""
 
-    override_path = path or DEFAULT_SETTINGS_PATH
+    override_path = Path(path) if path else DEFAULT_OVERRIDE_PATH
     if path and not override_path.exists():
-        logger.warning("Configuration override file %s not found; falling back to defaults", path)
+        logger.warning(
+            "Configuration override file %s not found; falling back to defaults", path
+        )
     return load_config(
         overrides=overrides,
         env=env,
