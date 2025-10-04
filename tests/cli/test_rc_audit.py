@@ -22,7 +22,7 @@ def _defaults_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "RC_CACHE_DIR": str(cache_dir),
         "RC_ARTIFACT_DIR": str(artifact_dir),
         "RC_REPORTS_DIR": str(reports_dir),
-        "RC_SETTINGS_FILE": str(project_root / "config" / "settings.yaml"),
+        "RC_SETTINGS_FILE": str(project_root / "config" / "defaults.yml"),
     }
     for key, value in env.items():
         monkeypatch.setenv(key, value)
