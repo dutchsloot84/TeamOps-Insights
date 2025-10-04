@@ -1,14 +1,16 @@
 import datetime as dt
 import json
-import logging
 import os
 import time
 import boto3
 from jira_api import refresh_access_token, search_page, discover_field_map, get_all_comments_if_needed
 from adf_md import to_markdown
 
-log = logging.getLogger()
-log.setLevel(logging.INFO)
+from releasecopilot.logging_config import configure_logging, get_logger
+
+
+configure_logging()
+LOGGER = get_logger(__name__)
 
 secrets = boto3.client("secretsmanager")
 ssm = boto3.client("ssm")
@@ -112,7 +114,7 @@ def handler(event, context):
 
     cursor = _load_cursor()
     jql = f'updated >= "{cursor}" ORDER BY updated ASC'
-    log.info(f"JQL: {jql}")
+    LOGGER.info(f"JQL: {jql}")
     start = 0
     last_seen = cursor
     total_processed = 0
