@@ -1,85 +1,92 @@
 # CLI Usage
 
-Release Copilot ships with a single entry point (`main.py`) that reads defaults
-from [`config/settings.yaml`](../config/settings.yaml). Configuration values are
-merged at runtime using the following precedence:
-
-1. Command line arguments (highest priority)
-2. Environment variables, including values loaded from a local `.env`
-3. YAML defaults defined in `config/settings.yaml`
-
-Secrets such as Jira or Bitbucket credentials follow a similar order inside the
-`CredentialStore` helper:
-
-1. Environment variables (or values provided in a `.env` file)
-2. AWS Secrets Manager payloads referenced by `aws.secrets.*`
-3. YAML defaults in `config/settings.yaml`
-
-## Running the CLI
+Release Copilot exposes a subcommand-oriented CLI under the `rc` entry point. The
+first supported workflow, `rc audit`, rebuilds release audit artifacts entirely
+from cached Jira and Bitbucket payloads. This keeps the pipeline deterministic
+and enables teams to reproduce historical audits without hitting live APIs.
 
 ```bash
-python main.py \
-  --fix-version 2025.09.27 \
-  --repos policycenter claimcenter \
-  --use-cache
+rc audit \
+  --cache-dir temp_data \
+  --json dist/audit.json \
+  --xlsx dist/audit.xlsx \
+  --scope fixVersion=2025.09.20
 ```
 
-The command above overrides the repositories configured in `config/settings.yaml`
-and forces the CLI to reuse cached API payloads. Any flag supplied on the
-command line supersedes environment variables and file-based defaults.
+The command reads cached payloads from `temp_data/`, generates JSON and Excel
+artifacts in `dist/`, and records the fix version in the execution scope. The
+scope is included in structured logs and S3 metadata to support Historian
+traceability.
 
-## Available options
+## Defaults and configuration
+
+Both the CLI and the Lambda entry points rely on the shared defaults loader in
+[`src/config/loader.py`](../src/config/loader.py). The loader resolves the
+project root, cache directory, artifact directory, and reports directory by
+looking at environment overrides first and falling back to conventional
+locations:
+
+- `RC_ROOT` → project root (default: repository root)
+- `RC_CACHE_DIR` → cached payloads (default: `<root>/temp_data`)
+- `RC_ARTIFACT_DIR` → generated artifacts (default: `<root>/dist`)
+- `RC_REPORTS_DIR` → published reports (default: `<root>/reports`)
+
+The loader also exposes the default export formats (`json,excel`). These values
+are injected into the `rc audit` execution plan to keep the CLI and the Lambda
+in sync.
+
+## Command reference
 
 | Flag | Description |
 | ---- | ----------- |
-| `--fix-version` | Release fix version (required). |
-| `--repos` | One or more Bitbucket repository slugs to inspect. |
-| `--branches` | Optional list of branches (defaults to configuration). |
-| `--develop-only` | Convenience flag equivalent to `--branches develop`. |
-| `--freeze-date` | ISO date representing the code freeze (default: today). |
-| `--window-days` | Days of history to analyze before the freeze date (default: 28). |
-| `--use-cache` | Reuse the latest cached API payloads instead of calling APIs. |
-| `--s3-bucket` | Override the S3 bucket defined in `config/settings.yaml`. |
-| `--s3-prefix` | Prefix within the S3 bucket for uploaded artifacts (default: `releasecopilot`). |
-| `--output-prefix` | Basename for generated output files. |
-| `--log-level` | Logging verbosity for the current run. |
+| `--cache-dir` | Directory containing the cached JSON payloads required for exports. |
+| `--json` | Destination path for the regenerated JSON artifact. |
+| `--xlsx` | Destination path for the regenerated Excel workbook. |
+| `--summary` | Destination path for the summary JSON payload. |
+| `--scope` | Repeatable `key=value` metadata entries describing the audit scope. |
+| `--upload` | Optional S3 URI (`s3://bucket/prefix`) to receive the generated artifacts. |
+| `--region` | AWS region used for uploads (defaults to `AWS_REGION`/`AWS_DEFAULT_REGION`). |
+| `--dry-run` | Print the execution plan and exit without touching the filesystem. |
+| `--log-level` | Logging verbosity (`INFO` by default). |
 
-## Providing secrets
+Pass `--dry-run` to validate paths, scope metadata, and upload destinations. The
+command returns a JSON payload describing the planned outputs without reading or
+writing files. This is useful for CI pipelines where you want to confirm the
+execution plan before mounting caches.
 
-Provide secrets through environment variables (for example `JIRA_CLIENT_SECRET`
-or `BITBUCKET_APP_PASSWORD`). If a value is missing, the CLI looks for an AWS
-Secrets Manager secret whose ARN is defined under `aws.secrets.jira` or
-`aws.secrets.bitbucket` in `config/settings.yaml`. The secret payload must expose
-keys that match the expected environment variable names. When neither source has
-a value, the CLI falls back to the YAML defaults.
+## Cached payload expectations
 
-## Recovery Mode
+`rc audit` expects four JSON files in the cache directory:
 
-If the main pipeline completes its data collection phase but fails before
-exporting artifacts, you can rebuild the outputs from the cached JSON files
-using `recover_and_export.py`. The tool reads the intermediate payloads stored
-in `temp_data/` and produces the same Excel workbook and JSON summary generated
-by the normal export stage.
+- `stories.json` → stories without commits
+- `commits.json` → orphan commit payloads
+- `links.json` → commit-to-story mappings
+- `summary.json` → aggregated metrics
 
-```bash
-python recover_and_export.py --input-dir temp_data --format excel
-```
+These files are produced by the data collection phases of the legacy pipeline
+and retained by Historian. Missing or corrupt payloads cause the command to exit
+with a helpful error explaining which file needs to be recovered.
 
-The command above regenerates only the Excel workbook in the default output
-directory `reports/`. By default the utility writes both `audit_results.xlsx`
-and `audit_results.json` (alongside `summary.json`) to the selected output
-folder, mirroring the filenames created by the primary CLI.
+If the cache is available but the original export step failed, use
+[`recover_and_export.py`](../recover_and_export.py) as a convenience wrapper.
+It calls the same exporter under the hood but accepts separate knobs for
+selecting formats.
 
-## Loading local secrets
+## Uploading artifacts to S3
 
-For local runs you can populate a `.env` file and let the CLI source values from
-it. Copy the template and install the optional dependency:
+When `--upload` is provided, the CLI stages the generated artifacts in a
+temporary directory and calls `releasecopilot.uploader.upload_directory` to push
+them to Amazon S3. Each object is encrypted with SSE-S3 and tagged with:
 
-```bash
-cp .env.example .env
-pip install -r requirements-optional.txt
-```
+- `artifact=rc-audit`
+- `scope=<JSON encoded scope>`
 
-Populate the placeholders with development credentials and keep `.env` out of
-version control (the file is already ignored by git). In deployed environments
-prefer AWS Secrets Manager and use `.env` only for local iteration.
+This mirrors the Lambda metadata and makes it straightforward for Historian to
+associate uploads with a specific audit scope.
+
+## Logging
+
+Log messages use the shared configuration in
+[`releasecopilot.logging_config`](../src/releasecopilot/logging_config.py). Scope
+metadata is included in structured log fields, while secret values remain
+redacted thanks to the existing logging filters.
