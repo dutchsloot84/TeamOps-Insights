@@ -60,8 +60,14 @@ def test_run_readiness_success() -> None:
             {
                 "Table": {
                     "TableName": options.table_name,
-                    "KeySchema": [{"AttributeName": "issue_id", "KeyType": "HASH"}],
-                    "AttributeDefinitions": [{"AttributeName": "issue_id", "AttributeType": "S"}],
+                    "KeySchema": [
+                        {"AttributeName": "issue_key", "KeyType": "HASH"},
+                        {"AttributeName": "updated_at", "KeyType": "RANGE"},
+                    ],
+                    "AttributeDefinitions": [
+                        {"AttributeName": "issue_key", "AttributeType": "S"},
+                        {"AttributeName": "updated_at", "AttributeType": "S"},
+                    ],
                 }
             },
             {"TableName": options.table_name},
@@ -69,12 +75,24 @@ def test_run_readiness_success() -> None:
         ddb_stub.add_response(
             "put_item",
             {},
-            {"TableName": options.table_name, "Item": {"issue_id": {"S": ANY}}},
+            {
+                "TableName": options.table_name,
+                "Item": {
+                    "issue_key": {"S": ANY},
+                    "updated_at": {"S": ANY},
+                },
+            },
         )
         ddb_stub.add_response(
             "delete_item",
             {},
-            {"TableName": options.table_name, "Key": {"issue_id": {"S": ANY}}},
+            {
+                "TableName": options.table_name,
+                "Key": {
+                    "issue_key": {"S": ANY},
+                    "updated_at": {"S": ANY},
+                },
+            },
         )
 
         s3_stub.add_response(
@@ -132,8 +150,14 @@ def test_readiness_reports_secret_failure() -> None:
             {
                 "Table": {
                     "TableName": options.table_name,
-                    "KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}],
-                    "AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}],
+                    "KeySchema": [
+                        {"AttributeName": "pk", "KeyType": "HASH"},
+                        {"AttributeName": "sk", "KeyType": "RANGE"},
+                    ],
+                    "AttributeDefinitions": [
+                        {"AttributeName": "pk", "AttributeType": "S"},
+                        {"AttributeName": "sk", "AttributeType": "S"},
+                    ],
                 }
             },
             {"TableName": options.table_name},
@@ -141,12 +165,24 @@ def test_readiness_reports_secret_failure() -> None:
         ddb_stub.add_response(
             "put_item",
             {},
-            {"TableName": options.table_name, "Item": {"pk": {"S": ANY}}},
+            {
+                "TableName": options.table_name,
+                "Item": {
+                    "pk": {"S": ANY},
+                    "sk": {"S": ANY},
+                },
+            },
         )
         ddb_stub.add_response(
             "delete_item",
             {},
-            {"TableName": options.table_name, "Key": {"pk": {"S": ANY}}},
+            {
+                "TableName": options.table_name,
+                "Key": {
+                    "pk": {"S": ANY},
+                    "sk": {"S": ANY},
+                },
+            },
         )
 
         s3_stub.add_response(
@@ -194,8 +230,14 @@ def test_webhook_missing_fails() -> None:
             {
                 "Table": {
                     "TableName": options.table_name,
-                    "KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}],
-                    "AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}],
+                    "KeySchema": [
+                        {"AttributeName": "pk", "KeyType": "HASH"},
+                        {"AttributeName": "sk", "KeyType": "RANGE"},
+                    ],
+                    "AttributeDefinitions": [
+                        {"AttributeName": "pk", "AttributeType": "S"},
+                        {"AttributeName": "sk", "AttributeType": "S"},
+                    ],
                 }
             },
             {"TableName": options.table_name},
@@ -203,12 +245,24 @@ def test_webhook_missing_fails() -> None:
         ddb_stub.add_response(
             "put_item",
             {},
-            {"TableName": options.table_name, "Item": {"pk": {"S": ANY}}},
+            {
+                "TableName": options.table_name,
+                "Item": {
+                    "pk": {"S": ANY},
+                    "sk": {"S": ANY},
+                },
+            },
         )
         ddb_stub.add_response(
             "delete_item",
             {},
-            {"TableName": options.table_name, "Key": {"pk": {"S": ANY}}},
+            {
+                "TableName": options.table_name,
+                "Key": {
+                    "pk": {"S": ANY},
+                    "sk": {"S": ANY},
+                },
+            },
         )
 
         s3_stub.add_response(
@@ -263,8 +317,14 @@ def test_s3_cleanup_warning() -> None:
             {
                 "Table": {
                     "TableName": options.table_name,
-                    "KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}],
-                    "AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}],
+                    "KeySchema": [
+                        {"AttributeName": "pk", "KeyType": "HASH"},
+                        {"AttributeName": "sk", "KeyType": "RANGE"},
+                    ],
+                    "AttributeDefinitions": [
+                        {"AttributeName": "pk", "AttributeType": "S"},
+                        {"AttributeName": "sk", "AttributeType": "S"},
+                    ],
                 }
             },
             {"TableName": options.table_name},
@@ -272,12 +332,24 @@ def test_s3_cleanup_warning() -> None:
         ddb_stub.add_response(
             "put_item",
             {},
-            {"TableName": options.table_name, "Item": {"pk": {"S": ANY}}},
+            {
+                "TableName": options.table_name,
+                "Item": {
+                    "pk": {"S": ANY},
+                    "sk": {"S": ANY},
+                },
+            },
         )
         ddb_stub.add_response(
             "delete_item",
             {},
-            {"TableName": options.table_name, "Key": {"pk": {"S": ANY}}},
+            {
+                "TableName": options.table_name,
+                "Key": {
+                    "pk": {"S": ANY},
+                    "sk": {"S": ANY},
+                },
+            },
         )
 
         s3_stub.add_response(

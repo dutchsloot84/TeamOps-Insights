@@ -26,8 +26,9 @@ aws:
   secrets:
     jira: secret/jira
     webhook: secret/webhook
-jira:
-  issue_table_name: releasecopilot-jira
+storage:
+  dynamodb:
+    jira_issue_table: releasecopilot-jira
 """.strip(),
         encoding="utf-8",
     )

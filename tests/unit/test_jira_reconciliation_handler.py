@@ -97,13 +97,19 @@ def test_reconciliation_upserts_new_issue(monkeypatch: pytest.MonkeyPatch) -> No
     assert table.put_calls
     stored_item = table.put_calls[0]["Item"]
     assert stored_item["issue_id"] == "1000"
+    assert stored_item["issue_key"] == "ABC-1"
     assert stored_item["fix_version"] == "2024.05"
+    assert stored_item["idempotency_key"].startswith("reconciliation:ABC-1")
+    assert table.put_calls[0]["ConditionExpression"].startswith(
+        "attribute_not_exists(idempotency_key)"
+    )
     assert cw.metric_payloads
 
 
 def test_reconciliation_marks_missing_issue(monkeypatch: pytest.MonkeyPatch) -> None:
     existing = {
         "issue_id": "1000",
+        "issue_key": "ABC-1",
         "fix_version": "2024.05",
         "deleted": False,
         "updated_at": "2024-04-01T00:00:00Z",
@@ -121,7 +127,10 @@ def test_reconciliation_marks_missing_issue(monkeypatch: pytest.MonkeyPatch) -> 
     assert response["statusCode"] == 200
     assert table.update_calls
     update = table.update_calls[0]
-    assert update["Key"] == {"issue_id": "1000"}
+    assert update["Key"] == {
+        "issue_key": "ABC-1",
+        "updated_at": "2024-04-01T00:00:00Z",
+    }
     assert update["UpdateExpression"].startswith("SET deleted = :true")
 
 

@@ -215,34 +215,52 @@ def _discover_fix_versions_from_table() -> Iterable[str]:
 
 def _reconcile_fix_version(fix_version: str, jira_issues: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     existing_items = list(_query_fix_version(fix_version))
-    existing_by_id = {item.get("issue_id"): item for item in existing_items if item.get("issue_id")}
-    seen_issue_ids: set[str] = set()
+    existing_by_key: dict[str, Dict[str, Any]] = {}
+    for item in existing_items:
+        issue_key = item.get("issue_key") or item.get("issue_id")
+        if not issue_key:
+            continue
+        current = existing_by_key.get(issue_key)
+        if not current or _is_newer(item.get("updated_at"), current.get("updated_at")):
+            existing_by_key[issue_key] = item
+
+    seen_issue_keys: set[str] = set()
 
     created = updated = unchanged = deleted = 0
 
     for issue in jira_issues:
-        issue_id = str(issue.get("id") or issue.get("key"))
-        if not issue_id:
+        issue_key = str(issue.get("key") or issue.get("id") or "").strip()
+        if not issue_key:
             LOGGER.warning("Skipping Jira issue without id", extra={"fix_version": fix_version})
             continue
-        seen_issue_ids.add(issue_id)
+        seen_issue_keys.add(issue_key)
         item = _build_item(issue, fix_version=fix_version)
-        stored = existing_by_id.get(issue_id)
-        if stored and stored.get("updated_at") == item.get("updated_at") and not stored.get("deleted"):
-            unchanged += 1
-            continue
-        _put_item_with_retry(item, item.get("updated_at"))
+        stored = existing_by_key.get(issue_key)
+        if stored and stored.get("deleted"):
+            stored = None
+
+        if stored:
+            stored_updated = stored.get("updated_at")
+            incoming_updated = item.get("updated_at")
+            if stored_updated == incoming_updated:
+                unchanged += 1
+                continue
+            if _is_newer(stored_updated, incoming_updated):
+                unchanged += 1
+                continue
+        _put_item_with_retry(item)
         if stored:
             updated += 1
         else:
             created += 1
 
-    for issue_id, stored in existing_by_id.items():
-        if issue_id in seen_issue_ids:
+    for issue_key, stored in existing_by_key.items():
+        if issue_key in seen_issue_keys:
+            unchanged += 1
             continue
         if stored.get("deleted"):
             continue
-        _mark_deleted(issue_id)
+        _mark_deleted(issue_key)
         deleted += 1
 
     LOGGER.info(
@@ -266,6 +284,14 @@ def _reconcile_fix_version(fix_version: str, jira_issues: Sequence[Dict[str, Any
     }
 
 
+def _is_newer(candidate: Optional[str], baseline: Optional[str]) -> bool:
+    if candidate and not baseline:
+        return True
+    if not candidate or not baseline:
+        return False
+    return str(candidate) > str(baseline)
+
+
 def _build_item(issue: Dict[str, Any], *, fix_version: str) -> Dict[str, Any]:
     fields = issue.get("fields") or {}
     fix_versions = [fv.get("name") for fv in fields.get("fixVersions") or [] if fv.get("name")]
@@ -274,21 +300,24 @@ def _build_item(issue: Dict[str, Any], *, fix_version: str) -> Dict[str, Any]:
     assignee = (fields.get("assignee") or {}).get("accountId") or (
         (fields.get("assignee") or {}).get("displayName")
     )
-    updated_at = _normalize_timestamp(fields.get("updated") or fields.get("created"))
+    updated_at = _normalize_timestamp(fields.get("updated") or fields.get("created")) or _now_iso()
+    issue_key = issue.get("key") or issue.get("id")
+    idempotency_key = f"reconciliation:{issue_key}:{updated_at}"
 
     return {
-        "issue_id": issue.get("id") or issue.get("key"),
-        "issue_key": issue.get("key"),
+        "issue_id": issue.get("id") or issue_key,
+        "issue_key": issue_key,
+        "updated_at": updated_at,
         "project_key": (fields.get("project") or {}).get("key"),
         "status": status,
         "assignee": assignee or "UNASSIGNED",
         "fix_version": fix_version_value,
         "fix_versions": fix_versions,
-        "updated_at": updated_at,
         "received_at": _now_iso(),
         "issue": issue,
         "deleted": False,
         "last_event_type": "reconciliation",
+        "idempotency_key": idempotency_key,
     }
 
 
@@ -296,6 +325,7 @@ def _query_fix_version(fix_version: str) -> Iterable[Dict[str, Any]]:
     params = {
         "IndexName": "FixVersionIndex",
         "KeyConditionExpression": Key("fix_version").eq(fix_version),
+        "ScanIndexForward": False,
     }
     last_key: Optional[Dict[str, Any]] = None
     while True:
@@ -310,28 +340,64 @@ def _query_fix_version(fix_version: str) -> Iterable[Dict[str, Any]]:
             break
 
 
-def _mark_deleted(issue_id: str) -> None:
+def _fetch_latest_issue_item(issue_key: str) -> Optional[Dict[str, Any]]:
     params = {
-        "Key": {"issue_id": issue_id},
-        "UpdateExpression": "SET deleted = :true, last_event_type = :evt, received_at = :now",
-        "ExpressionAttributeValues": {
-            ":true": True,
-            ":evt": "reconciliation_missing",
-            ":now": _now_iso(),
-        },
+        "KeyConditionExpression": Key("issue_key").eq(issue_key),
+        "ScanIndexForward": False,
+        "Limit": 1,
     }
-    _execute_with_backoff(_TABLE.update_item, params)
+    response = _execute_with_backoff(_TABLE.query, params)
+    items = response.get("Items") or []
+    if not items:
+        return None
+    return items[0]
 
 
-def _put_item_with_retry(item: Dict[str, Any], updated_at: Optional[str]) -> None:
-    condition = "attribute_not_exists(issue_id)"
-    values: Dict[str, Any] = {}
-    if updated_at:
-        condition += " OR updated_at <= :updated"
-        values[":updated"] = updated_at
-    params: Dict[str, Any] = {"Item": item, "ConditionExpression": condition}
-    if values:
-        params["ExpressionAttributeValues"] = values
+def _mark_deleted(issue_key: str) -> None:
+    latest = _fetch_latest_issue_item(issue_key)
+    now = _now_iso()
+    if latest:
+        sort_key = latest.get("updated_at") or now
+        params = {
+            "Key": {"issue_key": issue_key, "updated_at": sort_key},
+            "UpdateExpression": "SET deleted = :true, last_event_type = :evt, received_at = :now, idempotency_key = :id",  # noqa: E501
+            "ExpressionAttributeValues": {
+                ":true": True,
+                ":evt": "reconciliation_missing",
+                ":now": now,
+                ":id": f"reconciliation:delete:{issue_key}:{sort_key}",
+            },
+        }
+        _execute_with_backoff(_TABLE.update_item, params)
+        return
+
+    params = {
+        "Item": {
+            "issue_key": issue_key,
+            "updated_at": now,
+            "issue_id": issue_key,
+            "project_key": None,
+            "status": "UNKNOWN",
+            "assignee": "UNASSIGNED",
+            "fix_version": "UNASSIGNED",
+            "fix_versions": [],
+            "received_at": now,
+            "issue": {},
+            "deleted": True,
+            "last_event_type": "reconciliation_missing",
+            "idempotency_key": f"reconciliation:delete:{issue_key}:{now}",
+        },
+        "ConditionExpression": "attribute_not_exists(idempotency_key)",
+    }
+    _execute_with_backoff(_TABLE.put_item, params)
+
+
+def _put_item_with_retry(item: Dict[str, Any]) -> None:
+    params: Dict[str, Any] = {
+        "Item": item,
+        "ConditionExpression": "attribute_not_exists(idempotency_key) OR idempotency_key = :id",
+        "ExpressionAttributeValues": {":id": item["idempotency_key"]},
+    }
     _execute_with_backoff(_TABLE.put_item, params)
 
 
@@ -343,7 +409,10 @@ def _execute_with_backoff(action, params: Dict[str, Any]) -> Dict[str, Any]:
         except ClientError as exc:
             code = (exc.response.get("Error", {}) or {}).get("Code")
             if code == "ConditionalCheckFailedException":
-                LOGGER.info("Skipping outdated update", extra={"issue_id": params.get("Item", {}).get("issue_id")})
+                item = params.get("Item") or {}
+                key = params.get("Key") or {}
+                issue_key = item.get("issue_key") or key.get("issue_key")
+                LOGGER.info("Skipping outdated update", extra={"issue_key": issue_key})
                 return {}
             if code not in {
                 "ProvisionedThroughputExceededException",

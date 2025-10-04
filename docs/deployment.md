@@ -34,7 +34,11 @@ The unified `ReleaseCopilot-<env>-Core` stack provisions:
 - Secrets Manager secrets for Jira, Bitbucket, and an optional webhook signing
   secret, reused across runtimes when ARNs are not supplied via context.
 - A Python 3.11 ReleaseCopilot Lambda function plus API Gateway, DynamoDB table,
-  and reconciliation/background Lambda components.
+  and reconciliation/background Lambda components. The Jira cache table uses a
+  composite key of `issue_key` (partition) and `updated_at` (sort) with
+  point-in-time recovery enabled. Historical versions remain queryable via the
+  sort key and secondary indexes (`FixVersionIndex`, `StatusIndex`,
+  `AssigneeIndex`).
 - CloudWatch alarms, optional EventBridge schedules, and SQS DLQ support for the
   reconciliation workflow.
 
@@ -64,6 +68,8 @@ npx --yes cdk deploy ReleaseCopilot-<env>-Core -c scheduleEnabled=true
 
 - Stack outputs expose the artifacts bucket name, Lambda identifiers, DynamoDB
   table, webhook URL, and reconciliation Lambda name for downstream integration.
+  `JiraTableArn` and `JiraTableName` allow IAM deploy roles to scope DynamoDB
+  permissions narrowly.
 - The ReleaseCopilot Lambda receives `RC_S3_BUCKET`, `RC_S3_PREFIX`, and
   `RC_USE_AWS_SECRETS_MANAGER` environment variables and looks up Jira/Bitbucket
   OAuth credentials from Secrets Manager.
@@ -77,3 +83,17 @@ npx --yes cdk deploy ReleaseCopilot-<env>-Core -c scheduleEnabled=true
   `reconciliationScheduleEnabled=false` context flags during synth/deploy. If a
   `scheduleCron` or `reconciliationCron` expression is provided, those override
   the default rate expressions.
+
+### DynamoDB Schema Notes
+
+- Webhook ingestion writes items keyed by `issue_key` + `updated_at` and stores
+  an `idempotency_key` derived from the webhook delivery identifier. Replayed
+  events therefore update the existing sort key rather than creating duplicates.
+- Delete events mark the most recent sort key as a tombstone (`deleted=true`).
+  If reconciliation is replayed or a webhook retry arrives before the cache is
+  hydrated, a placeholder tombstone item is created using the same composite key
+  to preserve ordering.
+- When backfilling or replaying history, clean up stale sort keys by querying an
+  issue’s partition and deleting older versions once the latest payload is
+  confirmed. The CLI bootstrap tooling and reconciliation Lambda already enforce
+  monotonic updates based on the stored `updated_at` value.

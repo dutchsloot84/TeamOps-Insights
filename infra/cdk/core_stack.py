@@ -156,7 +156,10 @@ class CoreStack(Stack):
             self,
             "JiraIssuesTable",
             partition_key=dynamodb.Attribute(
-                name="issue_id", type=dynamodb.AttributeType.STRING
+                name="issue_key", type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="updated_at", type=dynamodb.AttributeType.STRING
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.RETAIN,
@@ -332,6 +335,7 @@ class CoreStack(Stack):
         CfnOutput(self, "LambdaName", value=self.lambda_function.function_name)
         CfnOutput(self, "LambdaArn", value=self.lambda_function.function_arn)
         CfnOutput(self, "JiraTableName", value=self.jira_table.table_name)
+        CfnOutput(self, "JiraTableArn", value=self.jira_table.table_arn)
         CfnOutput(self, "JiraWebhookUrl", value=self.webhook_api.url)
         CfnOutput(self, "JiraReconciliationLambdaName", value=self.reconciliation_lambda.function_name)
         CfnOutput(self, "JiraReconciliationDlqArn", value=self.reconciliation_dlq.queue_arn)
