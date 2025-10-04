@@ -91,6 +91,34 @@ readiness verdict to each deployment.
 | Webhook secret empty | Environment variable unset or empty secret payload | Inspect `WEBHOOK_SECRET` / `WEBHOOK_SECRET_ARN` or fetch the secret in the console. | Set the environment variable or update the secret payload. |
 | Cleanup warning present | Delete operation failed (S3 or DynamoDB) | Review CloudTrail events for the sentinel key/item. | Grant delete permissions or clean up manually. |
 
+## Jira Reconciliation DLQ Alarm Response
+
+The stack emits a `JiraReconciliationDlqMessagesVisibleAlarm` when the reconciliation dead-letter
+queue accrues messages. Use the `JiraReconciliationDlqArn` and `JiraReconciliationDlqUrl` stack
+outputs to locate the queue in the AWS console or with the AWS CLI. Example CLI discovery:
+
+```bash
+STACK_NAME=<releasecopilot-stack-name>
+DLQ_URL=$(aws cloudformation describe-stacks \
+  --stack-name "$STACK_NAME" \
+  --query "Stacks[0].Outputs[?OutputKey=='JiraReconciliationDlqUrl'].OutputValue" \
+  --output text)
+
+aws sqs get-queue-attributes \
+  --queue-url "$DLQ_URL" \
+  --attribute-names All
+```
+
+1. Inspect the queued payloads with `aws sqs receive-message --queue-url <url> --max-number-of-messages 10 --visibility-timeout 60`.
+2. Triage the failure (e.g., bad Jira credentials, throttling, malformed payload). Update secrets or
+   configuration as needed.
+3. Replay the message by posting it back to the primary reconciliation queue or invoking the Lambda
+   handler manually once the root cause is addressed.
+4. Delete or purge the DLQ messages (`aws sqs delete-message` or `aws sqs purge-queue`) after a
+   successful replay to reset the alarm.
+5. Run `rc health --readiness` to confirm the environment is back in a passing state and document the
+   incident in the deployment notes.
+
 ## Historian Anchors
 
 - Store the readiness JSON alongside audit artifacts for traceability.
