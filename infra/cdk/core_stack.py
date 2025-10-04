@@ -295,7 +295,9 @@ class CoreStack(Stack):
         webhook_integration = apigateway.LambdaIntegration(self.webhook_lambda)
         webhook_resource.add_method("POST", webhook_integration)
 
+        self._alarm_action = self._configure_alarm_action()
         self._add_lambda_alarms()
+        self._add_reconciliation_dlq_alarm()
         self._add_schedule(schedule_enabled=schedule_enabled, schedule_cron=schedule_cron)
 
         self._add_reconciliation_schedule(
@@ -309,6 +311,8 @@ class CoreStack(Stack):
         CfnOutput(self, "JiraTableName", value=self.jira_table.table_name)
         CfnOutput(self, "JiraWebhookUrl", value=self.webhook_api.url)
         CfnOutput(self, "JiraReconciliationLambdaName", value=self.reconciliation_lambda.function_name)
+        CfnOutput(self, "JiraReconciliationDlqArn", value=self.reconciliation_dlq.queue_arn)
+        CfnOutput(self, "JiraReconciliationDlqUrl", value=self.reconciliation_dlq.queue_url)
 
     def _attach_policies(self) -> None:
         prefix_objects_arn = self.bucket.arn_for_objects(f"{self.RC_S3_PREFIX}/*")
@@ -376,9 +380,16 @@ class CoreStack(Stack):
             ),
         )
 
-    def _add_lambda_alarms(self) -> None:
-        alarm_email = self.node.try_get_context("alarmEmail") or ""
+    def _configure_alarm_action(self) -> actions.IAlarmAction | None:
+        alarm_email = (self.node.try_get_context("alarmEmail") or "").strip()
+        if not alarm_email:
+            return None
 
+        topic = sns.Topic(self, "ReleaseCopilotAlarmTopic")
+        topic.add_subscription(subs.EmailSubscription(alarm_email))
+        return actions.SnsAction(topic)
+
+    def _add_lambda_alarms(self) -> None:
         errors_metric = self.lambda_function.metric_errors(
             period=Duration.minutes(5), statistic="sum"
         )
@@ -406,12 +417,31 @@ class CoreStack(Stack):
             treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
         )
 
-        if alarm_email:
-            topic = sns.Topic(self, "ReleaseCopilotAlarmTopic")
-            topic.add_subscription(subs.EmailSubscription(alarm_email))
-            action = actions.SnsAction(topic)
-            errors_alarm.add_alarm_action(action)
-            throttles_alarm.add_alarm_action(action)
+        if self._alarm_action:
+            errors_alarm.add_alarm_action(self._alarm_action)
+            throttles_alarm.add_alarm_action(self._alarm_action)
+
+    def _add_reconciliation_dlq_alarm(self) -> None:
+        dlq_metric = self.reconciliation_dlq.metric_approximate_number_of_messages_visible(
+            period=Duration.minutes(5),
+            statistic="sum",
+        )
+
+        dlq_alarm = cw.Alarm(
+            self,
+            "JiraReconciliationDlqMessagesVisibleAlarm",
+            metric=dlq_metric,
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
+            alarm_description=(
+                "ReleaseCopilot reconciliation DLQ has visible messages requiring triage"
+            ),
+        )
+
+        if self._alarm_action:
+            dlq_alarm.add_alarm_action(self._alarm_action)
 
     def _add_schedule(self, *, schedule_enabled: bool, schedule_cron: str | None) -> None:
         """Provision the optional EventBridge rule when scheduling is enabled.

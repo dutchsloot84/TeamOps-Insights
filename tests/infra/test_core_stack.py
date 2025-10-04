@@ -179,7 +179,30 @@ def test_stack_raises_when_asset_missing(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_lambda_alarms_created() -> None:
     template = _synth_template()
-    template.resource_count_is("AWS::CloudWatch::Alarm", 2)
+    template.resource_count_is("AWS::CloudWatch::Alarm", 3)
+
+
+def test_reconciliation_dlq_alarm_configuration() -> None:
+    template = _synth_template()
+    template.has_resource_properties(
+        "AWS::CloudWatch::Alarm",
+        Match.object_like(
+            {
+                "MetricName": "ApproximateNumberOfMessagesVisible",
+                "Namespace": "AWS/SQS",
+                "Threshold": 1,
+                "Dimensions": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Name": "QueueName",
+                            }
+                        )
+                    ]
+                ),
+            }
+        ),
+    )
 
 
 def test_sns_topic_created_when_alarm_email_provided() -> None:
@@ -198,6 +221,8 @@ def test_stack_outputs_present() -> None:
     assert "ArtifactsBucketName" in outputs
     assert "LambdaArn" in outputs
     assert "JiraReconciliationLambdaName" in outputs
+    assert "JiraReconciliationDlqArn" in outputs
+    assert "JiraReconciliationDlqUrl" in outputs
 
 
 def test_eventbridge_rule_targets_lambda_when_enabled() -> None:
