@@ -111,6 +111,21 @@ scope with the selected fix version.
 | `--dry-run` | Print the execution plan without touching the filesystem. |
 | `--log-level` | Logging verbosity for the current run. |
 
+### Readiness smoke check
+
+Operations teams can verify AWS connectivity without running a full audit by
+invoking the readiness probe:
+
+```bash
+rc health --readiness --json dist/health.json
+```
+
+The command loads the same defaults as the audit workflow and validates
+Secrets Manager access, DynamoDB write/delete permissions, S3 object lifecycle,
+and webhook secret resolution. The JSON output follows
+[`docs/schemas/health.v1.json`](docs/schemas/health.v1.json) and is documented
+in [`docs/runbooks/health_smoke.md`](docs/runbooks/health_smoke.md).
+
 ### S3 uploads
 
 Supplying `--upload s3://bucket/prefix` stages the generated artifacts and

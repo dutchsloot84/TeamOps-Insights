@@ -12,6 +12,7 @@ from releasecopilot.logging_config import configure_logging, get_logger
 
 from ..config.loader import Defaults, load_defaults
 from .audit import AuditInputError, AuditOptions, AuditResult, run_audit
+from .health import HealthCommandError, register_health_parser, run_health_command
 
 LOGGER = get_logger(__name__)
 
@@ -82,6 +83,7 @@ def build_parser(defaults: Defaults | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rc", description="ReleaseCopilot CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
     _build_audit_parser(subparsers, defaults)
+    register_health_parser(subparsers, defaults)
     return parser
 
 
@@ -116,29 +118,37 @@ def main(argv: Iterable[str] | None = None, *, defaults: Defaults | None = None)
     parser = build_parser(defaults)
     args = parser.parse_args(argv)
 
-    configure_logging(args.log_level)
+    configure_logging(getattr(args, "log_level", "INFO"))
     LOGGER.debug("Parsed arguments", extra={"command": args.command})
 
-    if args.command != "audit":
-        parser.print_help()
-        return 1
+    if args.command == "audit":
+        options = _collect_audit_options(args, defaults)
 
-    options = _collect_audit_options(args, defaults)
+        try:
+            if args.dry_run:
+                plan = options.build_plan()
+                print(json.dumps({"plan": plan}, indent=2))
+                return 0
 
-    try:
-        if args.dry_run:
-            plan = options.build_plan()
-            print(json.dumps({"plan": plan}, indent=2))
-            return 0
+            result: AuditResult = run_audit(options)
+        except AuditInputError as exc:
+            LOGGER.error("Audit command failed", extra={"error": str(exc)})
+            print(str(exc), file=sys.stderr)
+            return 1
 
-        result: AuditResult = run_audit(options)
-    except AuditInputError as exc:
-        LOGGER.error("Audit command failed", extra={"error": str(exc)})
-        print(str(exc), file=sys.stderr)
-        return 1
+        print(json.dumps(result.as_dict(), indent=2))
+        return 0
 
-    print(json.dumps(result.as_dict(), indent=2))
-    return 0
+    if args.command == "health":
+        try:
+            return run_health_command(args, defaults)
+        except HealthCommandError as exc:
+            LOGGER.error("Health command failed", extra={"error": str(exc)})
+            print(str(exc), file=sys.stderr)
+            return 1
+
+    parser.print_help()
+    return 1
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point

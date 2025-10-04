@@ -1,0 +1,23 @@
+{
+  "version": "health.v1",
+  "timestamp": "2024-05-01T12:00:00Z",
+  "overall": "pass",
+  "checks": {
+    "secrets": {
+      "status": "pass",
+      "resource": "secretsmanager://jira=secret/jira, webhook=secret/webhook"
+    },
+    "dynamodb": {
+      "status": "pass",
+      "resource": "dynamodb://releasecopilot-jira-cache"
+    },
+    "s3": {
+      "status": "pass",
+      "resource": "s3://releasecopilot-artifacts/readiness/health/readiness/abc123.txt"
+    },
+    "webhook_secret": {
+      "status": "pass",
+      "resource": "secretsmanager://secret/webhook"
+    }
+  }
+}
