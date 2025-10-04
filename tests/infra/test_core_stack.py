@@ -119,7 +119,17 @@ def test_iam_policy_statements() -> None:
         "logs:CreateLogStream",
         "logs:PutLogEvents",
     }
-    assert logs_statement["Resource"].endswith(":log-group:/aws/lambda/*")
+    resources = logs_statement["Resource"]
+    assert isinstance(resources, list)
+    assert len(resources) == 3
+
+    log_group_ids = set(template.find_resources("AWS::Logs::LogGroup").keys())
+    assert all(isinstance(resource, dict) and "Fn::GetAtt" in resource for resource in resources)
+
+    statement_log_group_ids = {resource["Fn::GetAtt"][0] for resource in resources}
+
+    assert statement_log_group_ids.issubset(log_group_ids)
+    assert all(resource["Fn::GetAtt"][1] == "Arn" for resource in resources)
 
 
 def test_lambda_environment_and_log_groups() -> None:

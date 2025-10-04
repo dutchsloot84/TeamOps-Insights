@@ -15,6 +15,10 @@ The repository provides policy templates under `infra/iam/policies/`:
 
 These templates use `${aws:AccountId}` and `${aws:Region}` variables so they can be attached directly as inline policies or further refined.
 
+## Core stack updates
+
+The `infra/cdk/core_stack.CoreStack` execution role now enumerates the specific CloudWatch log group ARNs that it writes to instead of relying on the `/aws/lambda/*` wildcard. Record those ARNs from discovery or `cdk synth` output and update `infra/iam/resources.json` so the generated `logs.least-priv.json` reflects the restricted scope. The legacy CDK entry point in `cdk/stacks/core_stack.py` is kept for historical reference only and should be treated as deprecated.
+
 ## Generating least-privilege variants
 
 Once the diagnostic job has reported the exact resource names, populate `infra/iam/resources.json` with the concrete values (log groups, DynamoDB tables, secrets, roles). Then run:
