@@ -1,3 +1,83 @@
+# Canonical configuration defaults for Release Copilot.
+#
+# These values are intentionally non-secret and capture the expected shape of the
+# runtime configuration. Environment specific overrides should be supplied via:
+#   1. Local override files (e.g. config/settings.yaml, Lambda parameters).
+#   2. Environment variables (JIRA_BASE_URL, ARTIFACTS_BUCKET, ...).
+#   3. AWS Secrets Manager payloads referenced by ARN in the ``secrets`` block.
+#
+# The loader enforces a strict precedence order:
+#   overrides -> environment variables -> AWS Secrets Manager -> defaults
+#
+# The structure is designed to be machine-ingestible for Historian recall and to
+# keep CLI/Lambda execution in lockstep.
+
+aws:
+  region: us-east-1
+
+storage:
+  dynamodb:
+    jira_issue_table: releasecopilot-ai-jira-issues
+  s3:
+    bucket: releasecopilot-ai-artifacts
+    prefix: releasecopilot/reports
+
+jira:
+  base_url: https://your-domain.atlassian.net
+  cloud_id: your-cloud-id
+  scopes:
+    project: MOBPXD
+    fixVersion: "2025.10"
+    jql: "project = MOBPXD AND fixVersion = '2025.10'"
+  reconciliation:
+    cron: cron(15 7 * * ? *)
+    jql_template: "fixVersion = '{fix_version}' ORDER BY key"
+    fix_versions: ""
+  credentials:
+    client_id: null
+    client_secret: null
+    access_token: null
+    refresh_token: null
+    token_expiry: null
+
+bitbucket:
+  workspace: your-workspace
+  repositories: []
+  default_branches:
+    - develop
+  credentials:
+    username: null
+    app_password: null
+    access_token: null
+
+webhooks:
+  jira:
+    secret: null
+
+secrets:
+  jira_oauth:
+    arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:releasecopilot/jira/oauth
+    values:
+      jira.credentials.client_id: client_id
+      jira.credentials.client_secret: client_secret
+      jira.credentials.access_token: access_token
+      jira.credentials.refresh_token: refresh_token
+      jira.credentials.token_expiry: token_expiry
+  bitbucket_token:
+    arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:releasecopilot/bitbucket/token
+    values:
+      bitbucket.credentials.username: username
+      bitbucket.credentials.app_password: app_password
+      bitbucket.credentials.access_token: access_token
+      bitbucket.workspace: workspace
+  webhook_secret:
+    arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:releasecopilot/jira/webhook
+    values:
+      webhooks.jira.secret: secret
+
+# Historian defaults retained for backwards compatibility with the notes and
+# decision tracking tooling. These sections are consumed by Historian scripts and
+# should remain stable unless coordinated with that project.
 historian:
   sources:
     in_progress:

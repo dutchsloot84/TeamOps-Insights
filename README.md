@@ -65,14 +65,15 @@ pip install -r requirements-optional.txt
 
 1. Copy `.env.example` to `.env` for local development and populate the placeholders with test credentials. The file is `.gitignore`d—keep real secrets out of version control.
 2. Install the optional dependency with `pip install -r requirements-optional.txt` to enable automatic loading of the `.env` file.
-3. Update `config/settings.yaml` with your Jira site URL, Bitbucket workspace, and AWS resource names.
+3. Review `config/defaults.yml` for the canonical configuration shape. Provide environment-specific overrides in `config/settings.yaml` (optional) or via CLI flags.
 4. Store production credentials in AWS Secrets Manager using JSON keys that match the environment variable names (e.g., `JIRA_CLIENT_ID`, `BITBUCKET_APP_PASSWORD`).
 
 Configuration precedence is:
 
-1. CLI flags (highest priority)
+1. CLI flags and override files (`config/settings.yaml`) (highest priority)
 2. Environment variables, including values sourced from `.env`
-3. YAML defaults (`config/settings.yaml`)
+3. AWS Secrets Manager payloads referenced in `config/defaults.yml`
+4. Canonical defaults (`config/defaults.yml`)
 
 For non-local deployments, rely on AWS Secrets Manager wherever possible and only fall back to `.env` for iterative development.
 
