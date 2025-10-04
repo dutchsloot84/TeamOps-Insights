@@ -1,0 +1,55 @@
+{
+  "history": [
+    {
+      "date": "2025-09-25",
+      "file": "docs/history/2025-09-25-checkin.md",
+      "since": "2025-09-18T20:50:33.488213+00:00",
+      "until": "2025-09-25T20:50:33.488233+00:00",
+      "counts": {
+        "completed": 0,
+        "in_progress": 0,
+        "backlog": 0,
+        "notes": 0,
+        "artifacts": 0
+      }
+    },
+    {
+      "date": "2025-09-26",
+      "file": "docs/history/2025-09-26-checkin.md",
+      "since": "2025-09-19T21:30:22.022862+00:00",
+      "until": "2025-09-26T21:30:22.022879+00:00",
+      "counts": {
+        "completed": 30,
+        "in_progress": 0,
+        "backlog": 0,
+        "notes": 0,
+        "artifacts": 33
+      }
+    },
+    {
+      "date": "2025-09-26",
+      "file": "docs/history/2025-09-26-checkin.md",
+      "since": "2025-09-16T01:15:36.675143+00:00",
+      "until": "2025-09-26T01:15:36.675151+00:00",
+      "counts": {
+        "completed": 75,
+        "in_progress": 0,
+        "upcoming": 0
+      }
+    },
+    {
+      "date": "2025-09-29",
+      "file": "docs/history/2025-09-29-checkin.md",
+      "since": "2025-09-22T14:10:21.951788+00:00",
+      "until": "2025-09-29T14:10:21.951806+00:00",
+      "counts": {
+        "completed": 34,
+        "in_progress": 0,
+        "backlog": 0,
+        "notes": 6,
+        "artifacts": 39
+      }
+    }
+  ],
+  "generated_at": "2025-09-29T14:10:34.851476+00:00"
+}
