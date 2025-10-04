@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Mapping as TypingMapping
 
 from exporters.excel_exporter import ExcelExporter
 from exporters.json_exporter import JSONExporter
@@ -65,8 +65,9 @@ def export_all(
     orphans: Iterable[Dict[str, Any]] | None = None,
     summary: Mapping[str, Any] | None = None,
     *,
-    out_dir: str | Path,
+    out_dir: str | Path | None,
     formats: Iterable[str] | None = None,
+    filenames: TypingMapping[str, str | Path] | None = None,
 ) -> Dict[str, Path]:
     """Export the combined payload to JSON and Excel formats.
 
@@ -84,21 +85,41 @@ def export_all(
             summary=summary,
         )
 
-    output_dir = Path(out_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     requested_formats = _normalise_formats(formats)
 
-    outputs: Dict[str, Path] = {}
-    json_exporter = JSONExporter(output_dir)
-    excel_exporter = ExcelExporter(output_dir)
+    base_dir = Path(out_dir) if out_dir is not None else None
+    resolved: Dict[str, Path] = {}
+
+    def _resolve(name: str, default: str) -> Path:
+        if filenames and name in filenames:
+            path = Path(filenames[name]).resolve()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            return path
+        if base_dir is None:
+            raise ValueError(
+                "`out_dir` must be provided when explicit filenames are not supplied"
+            )
+        base_dir.mkdir(parents=True, exist_ok=True)
+        return (base_dir / default).resolve()
 
     if "json" in requested_formats:
-        outputs["json"] = json_exporter.export(payload, "audit_results.json")
+        resolved["json"] = _resolve("json", "audit_results.json")
     if "excel" in requested_formats:
-        outputs["excel"] = excel_exporter.export(payload, "audit_results.xlsx")
+        resolved["excel"] = _resolve("excel", "audit_results.xlsx")
+    resolved["summary"] = _resolve("summary", "summary.json")
 
-    summary_path = output_dir / "summary.json"
+    outputs: Dict[str, Path] = {}
+
+    if "json" in requested_formats:
+        json_path = resolved["json"]
+        json_exporter = JSONExporter(json_path.parent)
+        outputs["json"] = json_exporter.export(payload, json_path.name)
+    if "excel" in requested_formats:
+        excel_path = resolved["excel"]
+        excel_exporter = ExcelExporter(excel_path.parent)
+        outputs["excel"] = excel_exporter.export(payload, excel_path.name)
+
+    summary_path = resolved["summary"]
     summary_path.write_text(json.dumps(payload["summary"], indent=2), encoding="utf-8")
     outputs["summary"] = summary_path
 

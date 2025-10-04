@@ -78,52 +78,45 @@ For non-local deployments, rely on AWS Secrets Manager wherever possible and onl
 
 ## CLI Usage
 
-Run the audit locally:
+Release Copilot ships with a subcommand-based CLI. The primary workflow is the
+offline audit pipeline which consumes cached Jira and Bitbucket payloads and
+regenerates the export artifacts without performing any live API calls.
+
+Generate artifacts from cached inputs:
 
 ```bash
-python main.py \
-  --fix-version 2025.09.20 \
-  --repos policycenter claimcenter \
-  --develop-only \
-  --s3-bucket my-artifacts-bucket \
-  --s3-prefix audits
+rc audit \
+  --cache-dir temp_data \
+  --json dist/audit.json \
+  --xlsx dist/audit.xlsx \
+  --scope fixVersion=2025.09.20
 ```
 
-### Available Options
+The command above reads the cached JSON payloads stored in `temp_data/`, writes
+the regenerated JSON and Excel artifacts to `dist/`, and annotates the execution
+scope with the selected fix version.
+
+### Available options
 
 | Flag | Description |
 | ---- | ----------- |
-| `--fix-version` | Release fix version (required). |
-| `--repos` | One or more Bitbucket repository slugs to inspect. |
-| `--branches` | Optional list of branches (defaults to config). |
-| `--develop-only` | Convenience flag equivalent to `--branches develop`. |
-| `--freeze-date` | ISO date representing the code freeze (default: today). |
-| `--window-days` | Days of history to analyze before the freeze date (default: 28). |
-| `--use-cache` | Reuse the latest cached API payloads instead of calling APIs. |
-| `--s3-bucket` | Override the S3 bucket defined in `config/settings.yaml`. |
-| `--s3-prefix` | Prefix within the S3 bucket for uploaded artifacts (default: `releasecopilot`). |
-| `--output-prefix` | Basename for generated output files. |
+| `--cache-dir` | Directory containing cached payloads (default: `temp_data/`). |
+| `--json` | Destination path for the JSON artifact (default: `dist/audit.json`). |
+| `--xlsx` | Destination path for the Excel artifact (default: `dist/audit.xlsx`). |
+| `--summary` | Destination path for the summary JSON (default: `dist/audit-summary.json`). |
+| `--scope` | Repeatable key-value metadata entries (for example `--scope fixVersion=2025.09.20`). |
+| `--upload` | Optional S3 URI (`s3://bucket/prefix`) that receives the generated artifacts. |
+| `--region` | AWS region for uploads (defaults to `AWS_REGION`/`AWS_DEFAULT_REGION`). |
+| `--dry-run` | Print the execution plan without touching the filesystem. |
 | `--log-level` | Logging verbosity for the current run. |
 
-### S3 Upload Layout
+### S3 uploads
 
-When an S3 bucket is configured via CLI, configuration, or environment variables,
-the audit automatically uploads generated artifacts after a successful run. The
-files are grouped by fix version and execution timestamp using the pattern:
-
-```
-s3://<bucket>/<prefix>/<fix-version>/<YYYY-MM-DD_HHMMSS>/
-├── reports/
-│   ├── <output-prefix>.json
-│   ├── <output-prefix>.xlsx
-│   └── summary.json
-└── raw/
-    ├── jira_issues.json
-    └── bitbucket_commits.json
-```
-
-Each object is encrypted with SSE-S3 and tagged with metadata that captures the
-fix version, generation timestamp, and the current Git SHA when available.
+Supplying `--upload s3://bucket/prefix` stages the generated artifacts and
+publishes them to Amazon S3 using server-side encryption. Metadata attached to
+each object includes the serialized scope payload (for Historian traceability)
+and the `rc-audit` artifact marker, enabling downstream automation to identify
+the upload.
 
 ## Streamlit Dashboard
 
